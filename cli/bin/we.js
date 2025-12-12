@@ -29,6 +29,7 @@ import { workflow } from '../src/commands/workflow.js';
 import { ssh } from '../src/commands/ssh.js';
 import { help } from '../src/commands/help.js';
 import { config } from '../src/commands/config.js';
+import { mcp } from '../src/commands/mcp.js';
 import { getServerHost, getServerUser, getDbPassword } from '../src/lib/config.js';
 
 const program = new Command();
@@ -196,6 +197,17 @@ program
   .option('--value <value>', 'Configuration value for set action')
   .option('--no-interactive', 'Non-interactive mode')
   .action(config);
+
+// MCP Setup Command
+program
+  .command('mcp')
+  .description('Manage MCP server for Claude Code (setup|status|remove)')
+  .argument('[action]', 'Action (setup|status|remove)', 'status')
+  .option('--host <ip>', 'Server host IP')
+  .option('--user <user>', 'SSH user')
+  .option('--ssh-key <path>', 'SSH key path')
+  .option('--force', 'Force overwrite existing config')
+  .action(mcp);
 
 // Help/Doc Command
 program

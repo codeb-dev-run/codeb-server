@@ -35,8 +35,20 @@ fi
 cd "$INSTALL_DIR/cli"
 
 # 의존성 설치
-echo "📦 의존성 설치 중..."
+echo "📦 CLI 의존성 설치 중..."
 npm install --silent
+
+# MCP 서버 빌드 (Claude Code 연동용)
+echo "🔧 MCP 서버 빌드 중..."
+MCP_DIR="$INSTALL_DIR/codeb-deploy-system/mcp-server"
+if [ -d "$MCP_DIR" ]; then
+    cd "$MCP_DIR"
+    npm install --silent 2>/dev/null || true
+    npm run build --silent 2>/dev/null || echo "   ⚠️  MCP 빌드 실패 (나중에 수동 빌드 가능)"
+    cd "$INSTALL_DIR/cli"
+else
+    echo "   ⚠️  MCP 서버 디렉토리 없음 (선택 사항)"
+fi
 
 # 전역 링크
 echo "🔗 전역 명령어 등록 중..."
@@ -48,7 +60,9 @@ echo "║   ✅ 설치 완료!                               ║"
 echo "╚═══════════════════════════════════════════════╝"
 echo ""
 echo "다음 단계:"
-echo "  1. 설정 초기화: we config init"
-echo "  2. 버전 확인:   we --version"
-echo "  3. 도움말:      we help"
+echo "  1. 설정 초기화:    we config init"
+echo "  2. MCP 설정:       we mcp setup"
+echo "  3. Claude Code 재시작 (Cmd+Shift+P → Claude: Restart)"
+echo "  4. 버전 확인:      we --version"
+echo "  5. 도움말:         we help"
 echo ""
