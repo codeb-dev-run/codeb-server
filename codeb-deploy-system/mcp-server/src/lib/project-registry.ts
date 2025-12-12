@@ -231,6 +231,79 @@ export async function saveProjectRegistryToServer(): Promise<void> {
 }
 
 /**
+ * 설정 파일에서 프로젝트-컨테이너 매핑 로드
+ * 각 프로젝트의 deploy/config.json에서 containers 배열을 읽어옴
+ */
+async function loadProjectContainerMappings(
+  ssh: any
+): Promise<Map<string, Set<string>>> {
+  const mappings = new Map<string, Set<string>>();
+
+  try {
+    // 프로젝트 디렉토리 목록 조회
+    const projectDirs = await ssh.exec(
+      `ls -d ${PROJECTS_BASE_PATH}/*/ 2>/dev/null || echo ""`
+    );
+
+    if (!projectDirs.stdout.trim()) {
+      return mappings;
+    }
+
+    const dirs = projectDirs.stdout.trim().split('\n').filter(Boolean);
+
+    for (const dir of dirs) {
+      const projectName = dir.split('/').filter(Boolean).pop() || '';
+      const configPath = `${dir}deploy/config.json`;
+
+      try {
+        const configExists = await ssh.fileExists(configPath);
+        if (!configExists) continue;
+
+        const configContent = await ssh.readFile(configPath);
+        const config = JSON.parse(configContent);
+
+        // containers 배열에서 컨테이너 이름들 추출
+        if (config.containers && Array.isArray(config.containers)) {
+          const containerNames = new Set<string>();
+          for (const container of config.containers) {
+            if (container.name) {
+              containerNames.add(container.name);
+            }
+          }
+          if (containerNames.size > 0) {
+            mappings.set(projectName, containerNames);
+            console.error(
+              `[Scan] Loaded ${containerNames.size} container mappings for project: ${projectName}`
+            );
+          }
+        }
+      } catch (e) {
+        console.error(`[Scan] Failed to read config for ${projectName}:`, e);
+      }
+    }
+  } catch (e) {
+    console.error('[Scan] Failed to load project container mappings:', e);
+  }
+
+  return mappings;
+}
+
+/**
+ * 컨테이너 이름으로 프로젝트 찾기 (설정 파일 기반)
+ */
+function findProjectByContainerName(
+  containerName: string,
+  mappings: Map<string, Set<string>>
+): string | null {
+  for (const [projectName, containerNames] of mappings) {
+    if (containerNames.has(containerName)) {
+      return projectName;
+    }
+  }
+  return null;
+}
+
+/**
  * 서버에서 기존 배포된 프로젝트 스캔
  */
 export async function scanExistingProjects(): Promise<ScanResult> {
@@ -247,7 +320,13 @@ export async function scanExistingProjects(): Promise<ScanResult> {
   try {
     await ssh.connect();
 
-    // 1. 실행 중인 모든 Podman 컨테이너 조회
+    // 1. 설정 파일에서 프로젝트-컨테이너 매핑 로드 (먼저 실행)
+    const configMappings = await loadProjectContainerMappings(ssh);
+    console.error(
+      `[Scan] Loaded config mappings for ${configMappings.size} projects`
+    );
+
+    // 2. 실행 중인 모든 Podman 컨테이너 조회
     const containerList = await ssh.exec(
       `podman ps -a --format json 2>/dev/null || echo "[]"`
     );
@@ -262,7 +341,7 @@ export async function scanExistingProjects(): Promise<ScanResult> {
 
     result.totalContainers = containers.length;
 
-    // 2. 컨테이너를 프로젝트별로 그룹화
+    // 3. 컨테이너를 프로젝트별로 그룹화
     const projectMap = new Map<string, ContainerRecord[]>();
     const portUsage = new Map<number, string[]>();
 
@@ -270,8 +349,13 @@ export async function scanExistingProjects(): Promise<ScanResult> {
       const name = container.Names?.[0] || container.Name || '';
       const containerRecord = parseContainer(container, name);
 
-      // 프로젝트 이름 추출 (예: myapp-staging-app, myapp-production-db)
-      const projectName = extractProjectName(name);
+      // 프로젝트 이름 추출:
+      // 1단계: 설정 파일의 containers 배열에서 찾기 (우선)
+      // 2단계: 컨테이너 이름 패턴으로 추출 (폴백)
+      let projectName = findProjectByContainerName(name, configMappings);
+      if (!projectName) {
+        projectName = extractProjectName(name);
+      }
 
       if (projectName) {
         if (!projectMap.has(projectName)) {
@@ -291,7 +375,7 @@ export async function scanExistingProjects(): Promise<ScanResult> {
       }
     }
 
-    // 3. 프로젝트별로 RegisteredProject 생성
+    // 4. 프로젝트별로 RegisteredProject 생성
     for (const [projectName, projectContainers] of projectMap) {
       const project = buildProjectFromContainers(projectName, projectContainers);
       result.projects.push(project);
@@ -301,14 +385,14 @@ export async function scanExistingProjects(): Promise<ScanResult> {
       projectRegistry.registerProject(project);
     }
 
-    // 4. 포트 충돌 감지
+    // 5. 포트 충돌 감지
     for (const [port, containerNames] of portUsage) {
       if (containerNames.length > 1) {
         result.portConflicts.push({ port, containers: containerNames });
       }
     }
 
-    // 5. 기존 프로젝트 디렉토리에서 설정 파일 확인
+    // 6. 기존 프로젝트 디렉토리에서 설정 파일 경로 업데이트
     const projectDirs = await ssh.exec(
       `ls -d ${PROJECTS_BASE_PATH}/*/ 2>/dev/null || echo ""`
     );
@@ -329,7 +413,7 @@ export async function scanExistingProjects(): Promise<ScanResult> {
       }
     }
 
-    // 6. 레지스트리 저장
+    // 7. 레지스트리 저장
     await saveProjectRegistryToServer();
 
     return result;
