@@ -1,0 +1,57 @@
+# CodeB PostgreSQL Container - Quadlet 설정
+# 위치: /etc/containers/systemd/codeb-postgres.container
+# 적용: systemctl --user daemon-reload && systemctl --user enable --now codeb-postgres
+
+[Unit]
+Description=CodeB PostgreSQL Database Container
+Documentation=https://hub.docker.com/_/postgres
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+# 이미지 설정
+Image=docker.io/library/postgres:15-alpine
+ContainerName=codeb-postgres
+
+# 포트 매핑 (내부망만 노출 권장)
+PublishPort=5432:5432
+
+# 환경변수 파일 (시크릿 관리)
+EnvironmentFile=/opt/codeb/config/postgres.env
+
+# 볼륨 마운트 (데이터 영속화 필수!)
+Volume=/opt/codeb/data/postgres:/var/lib/postgresql/data:Z
+# 초기화 스크립트 (선택)
+# Volume=/opt/codeb/init/postgres:/docker-entrypoint-initdb.d:ro
+
+# 네트워크
+Network=codeb-network
+
+# 헬스체크
+HealthCmd=pg_isready -U postgres || exit 1
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=5
+HealthStartPeriod=30s
+
+# 리소스 제한
+# Memory=1G
+# CPUQuota=50%
+
+# PostgreSQL 최적화 파라미터 (4GB RAM 서버 기준)
+# PodmanArgs=--shm-size=256m
+
+[Service]
+Restart=always
+RestartSec=10s
+TimeoutStartSec=180
+TimeoutStopSec=60
+
+# 깨끗한 종료를 위한 시그널
+KillSignal=SIGTERM
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target default.target

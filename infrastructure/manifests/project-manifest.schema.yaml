@@ -1,0 +1,624 @@
+# CodeB Project Manifest Schema v1.0
+# 프로젝트 매니페스트 YAML 스키마 정의
+#
+# 이 스키마는 CodeB 시스템에서 프로젝트의 전체 생명주기를 선언적으로 정의합니다.
+# Infrastructure as Code (IaC) Layer 3의 핵심 구성 요소입니다.
+
+version: "1.0"
+schema:
+
+  # ============================================================================
+  # PROJECT: 프로젝트 기본 정보
+  # ============================================================================
+  project:
+    required: true
+    description: "프로젝트의 기본 메타데이터와 식별 정보"
+    fields:
+      id:
+        type: string
+        required: true
+        pattern: "^[a-z0-9-]+$"
+        description: "프로젝트 고유 식별자 (소문자, 숫자, 하이픈만 허용)"
+        example: "food-delivery-app"
+
+      name:
+        type: string
+        required: true
+        description: "프로젝트 표시 이름"
+        example: "음식 배달 서비스"
+
+      type:
+        type: enum
+        required: true
+        values: ["cms", "api", "admin", "landing", "mobile-backend", "microservice"]
+        description: "프로젝트 유형"
+        default: "cms"
+
+      template:
+        type: string
+        required: false
+        description: "사용할 템플릿 (core-cms, api-only, minimal 등)"
+        default: "core-cms"
+        example: "core-cms"
+
+      owner:
+        type: string
+        required: true
+        description: "프로젝트 담당자 (GitHub username)"
+        example: "leo"
+
+      team:
+        type: array
+        required: false
+        description: "프로젝트 팀원 목록"
+        example: ["developer1", "developer2"]
+
+      description:
+        type: string
+        required: false
+        description: "프로젝트 설명"
+        example: "고객과 레스토랑을 연결하는 음식 배달 플랫폼"
+
+      repository:
+        type: string
+        required: false
+        description: "Git 리포지토리 URL"
+        pattern: "^https://github.com/.+$"
+        example: "https://github.com/leocompany/food-delivery-app"
+
+      created_at:
+        type: datetime
+        required: false
+        auto: true
+        description: "프로젝트 생성 시각 (자동 생성)"
+
+      status:
+        type: enum
+        required: false
+        values: ["planning", "development", "staging", "production", "maintenance", "archived"]
+        default: "development"
+        description: "프로젝트 현재 상태"
+
+  # ============================================================================
+  # ENVIRONMENT: 환경 설정
+  # ============================================================================
+  environment:
+    required: true
+    description: "배포 환경 및 도메인 설정"
+    fields:
+      domain:
+        type: object
+        required: true
+        description: "도메인 설정"
+        fields:
+          primary:
+            type: string
+            required: true
+            pattern: "^[a-z0-9-]+\\.(leocompany\\.com|dev\\.leocompany\\.com)$"
+            description: "주 도메인 (자동 SSL 발급)"
+            example: "food-delivery.leocompany.com"
+
+          aliases:
+            type: array
+            required: false
+            description: "추가 도메인 별칭"
+            example: ["www.food-delivery.leocompany.com", "delivery.leocompany.com"]
+
+          ssl:
+            type: enum
+            required: false
+            values: ["auto", "manual", "none"]
+            default: "auto"
+            description: "SSL 인증서 발급 방식 (Caddy 자동 발급)"
+
+      base:
+        type: enum
+        required: true
+        values: ["development", "staging", "production"]
+        description: "기본 배포 환경"
+        example: "production"
+
+      variables:
+        type: object
+        required: false
+        description: "환경변수 (민감 정보는 Vault 사용)"
+        example:
+          NODE_ENV: "production"
+          API_BASE_URL: "https://api.food-delivery.leocompany.com"
+          NEXT_PUBLIC_APP_NAME: "Food Delivery"
+
+      secrets:
+        type: array
+        required: false
+        description: "Vault에서 가져올 시크릿 키 목록"
+        example: ["DATABASE_URL", "NEXTAUTH_SECRET", "SMTP_PASSWORD"]
+
+  # ============================================================================
+  # SERVERS: 서버 인프라 설정
+  # ============================================================================
+  servers:
+    required: true
+    description: "프로젝트에 할당된 서버 리소스"
+    fields:
+      app:
+        type: object
+        required: true
+        description: "애플리케이션 서버 설정"
+        fields:
+          host:
+            type: string
+            required: true
+            description: "서버 IP 또는 호스트명"
+            example: "45.76.178.123"
+
+          ssh_port:
+            type: integer
+            required: false
+            default: 22
+            description: "SSH 포트"
+
+          user:
+            type: string
+            required: false
+            default: "deploy"
+            description: "배포 사용자"
+
+      database:
+        type: object
+        required: true
+        description: "데이터베이스 서버 설정"
+        fields:
+          host:
+            type: string
+            required: true
+            description: "PostgreSQL 서버 IP"
+            example: "45.76.178.123"
+
+          port:
+            type: integer
+            required: false
+            default: 5432
+            description: "PostgreSQL 포트"
+
+          name:
+            type: string
+            required: true
+            description: "데이터베이스 이름"
+            pattern: "^[a-z0-9_]+$"
+            example: "food_delivery_db"
+
+          user:
+            type: string
+            required: false
+            default: "postgres"
+            description: "데이터베이스 사용자"
+
+      redis:
+        type: object
+        required: false
+        description: "Redis 캐시 서버 설정"
+        fields:
+          host:
+            type: string
+            required: true
+            example: "45.76.178.123"
+
+          port:
+            type: integer
+            required: false
+            default: 6379
+
+          db_index:
+            type: integer
+            required: true
+            min: 0
+            max: 15
+            description: "Redis DB 인덱스 (0-15, 프로젝트별 격리)"
+            example: 2
+
+      minio:
+        type: object
+        required: false
+        description: "MinIO 오브젝트 스토리지 설정"
+        fields:
+          host:
+            type: string
+            required: true
+            example: "minio.leocompany.com"
+
+          bucket:
+            type: string
+            required: true
+            description: "S3 버킷 이름"
+            pattern: "^[a-z0-9-]+$"
+            example: "food-delivery-uploads"
+
+          public:
+            type: boolean
+            required: false
+            default: false
+            description: "퍼블릭 액세스 허용 여부"
+
+  # ============================================================================
+  # RESOURCES: 리소스 할당
+  # ============================================================================
+  resources:
+    required: true
+    description: "프로젝트 리소스 할당 및 제한"
+    fields:
+      ports:
+        type: object
+        required: true
+        description: "포트 할당 (자동 할당 가능)"
+        fields:
+          app:
+            type: integer
+            required: false
+            auto: true
+            min: 3000
+            max: 3999
+            description: "애플리케이션 포트 (자동 할당: 3000-3999)"
+            example: 3005
+
+          internal:
+            type: integer
+            required: false
+            description: "내부 서비스 포트 (선택적)"
+            example: 3006
+
+      compute:
+        type: object
+        required: false
+        description: "컴퓨팅 리소스 제한"
+        fields:
+          cpu:
+            type: string
+            required: false
+            default: "1.0"
+            description: "CPU 코어 수 (Podman --cpus)"
+            example: "2.0"
+
+          memory:
+            type: string
+            required: false
+            default: "512m"
+            description: "메모리 제한 (Podman --memory)"
+            example: "1g"
+
+          replicas:
+            type: integer
+            required: false
+            default: 1
+            min: 1
+            max: 10
+            description: "컨테이너 복제본 수"
+
+      storage:
+        type: object
+        required: false
+        description: "스토리지 설정"
+        fields:
+          persistent:
+            type: boolean
+            required: false
+            default: false
+            description: "영구 볼륨 사용 여부"
+
+          size:
+            type: string
+            required: false
+            description: "볼륨 크기"
+            example: "10G"
+
+  # ============================================================================
+  # FEATURES: 기능 모듈 설정
+  # ============================================================================
+  features:
+    required: false
+    description: "활성화할 기능 모듈 (Core CMS 기반)"
+    fields:
+      core:
+        type: object
+        required: false
+        description: "Core CMS 기본 기능"
+        fields:
+          authentication:
+            type: boolean
+            default: true
+            description: "사용자 인증 (NextAuth.js)"
+
+          authorization:
+            type: object
+            required: false
+            description: "권한 관리"
+            fields:
+              enabled:
+                type: boolean
+                default: true
+              roles:
+                type: array
+                default: ["admin", "user", "guest"]
+                description: "기본 역할 목록"
+
+          admin_panel:
+            type: boolean
+            default: true
+            description: "관리자 대시보드"
+
+          file_upload:
+            type: object
+            required: false
+            description: "파일 업로드"
+            fields:
+              enabled:
+                type: boolean
+                default: false
+              max_size:
+                type: string
+                default: "10MB"
+              allowed_types:
+                type: array
+                default: ["image/jpeg", "image/png", "image/webp", "application/pdf"]
+
+      boards:
+        type: object
+        required: false
+        description: "게시판 기능"
+        fields:
+          enabled:
+            type: boolean
+            default: false
+
+          types:
+            type: array
+            required: false
+            description: "게시판 종류"
+            example: ["notice", "qna", "review"]
+
+      custom:
+        type: array
+        required: false
+        description: "커스텀 기능 모듈"
+        example:
+          - name: "payment"
+            description: "결제 모듈 (PG 연동)"
+          - name: "delivery-tracking"
+            description: "실시간 배달 추적"
+
+  # ============================================================================
+  # MONITORING: 모니터링 및 알림
+  # ============================================================================
+  monitoring:
+    required: false
+    description: "모니터링 및 알림 설정"
+    fields:
+      health_check:
+        type: object
+        required: false
+        description: "헬스 체크 설정"
+        fields:
+          enabled:
+            type: boolean
+            default: true
+
+          endpoint:
+            type: string
+            default: "/api/health"
+            description: "헬스 체크 엔드포인트"
+
+          interval:
+            type: string
+            default: "30s"
+            description: "체크 간격"
+
+          timeout:
+            type: string
+            default: "5s"
+            description: "타임아웃"
+
+          retries:
+            type: integer
+            default: 3
+            description: "재시도 횟수"
+
+      notifications:
+        type: object
+        required: false
+        description: "알림 채널"
+        fields:
+          slack:
+            type: object
+            required: false
+            fields:
+              enabled:
+                type: boolean
+                default: false
+
+              webhook_url:
+                type: string
+                required: false
+                secret: true
+                description: "Slack Webhook URL (Vault 저장 권장)"
+
+              channels:
+                type: array
+                required: false
+                description: "알림 받을 채널"
+                example: ["#deployments", "#alerts"]
+
+          email:
+            type: object
+            required: false
+            fields:
+              enabled:
+                type: boolean
+                default: false
+
+              recipients:
+                type: array
+                required: false
+                example: ["leo@leocompany.com"]
+
+      metrics:
+        type: object
+        required: false
+        description: "메트릭 수집 (Prometheus)"
+        fields:
+          enabled:
+            type: boolean
+            default: false
+
+          endpoint:
+            type: string
+            default: "/metrics"
+            description: "Prometheus 메트릭 엔드포인트"
+
+  # ============================================================================
+  # BACKUP: 백업 설정
+  # ============================================================================
+  backup:
+    required: false
+    description: "자동 백업 설정"
+    fields:
+      enabled:
+        type: boolean
+        default: false
+        description: "백업 활성화 여부"
+
+      schedule:
+        type: string
+        required: false
+        pattern: "^(@daily|@weekly|@monthly|[0-9 */]+)$"
+        description: "백업 스케줄 (cron 형식)"
+        example: "0 2 * * *"
+
+      retention:
+        type: object
+        required: false
+        description: "백업 보존 정책"
+        fields:
+          daily:
+            type: integer
+            default: 7
+            description: "일일 백업 보존 일수"
+
+          weekly:
+            type: integer
+            default: 4
+            description: "주간 백업 보존 주수"
+
+          monthly:
+            type: integer
+            default: 3
+            description: "월간 백업 보존 월수"
+
+      targets:
+        type: array
+        required: false
+        description: "백업 대상"
+        example: ["database", "uploads", "config"]
+
+      storage:
+        type: object
+        required: false
+        description: "백업 저장소"
+        fields:
+          type:
+            type: enum
+            values: ["local", "s3", "minio"]
+            default: "local"
+
+          path:
+            type: string
+            required: false
+            description: "백업 저장 경로"
+            example: "/backup/food-delivery-app"
+
+  # ============================================================================
+  # DEPLOYMENT: 배포 설정
+  # ============================================================================
+  deployment:
+    required: false
+    description: "배포 전략 및 CI/CD 설정"
+    fields:
+      strategy:
+        type: enum
+        required: false
+        values: ["rolling", "blue-green", "canary"]
+        default: "rolling"
+        description: "배포 전략"
+
+      auto_deploy:
+        type: object
+        required: false
+        description: "자동 배포 설정"
+        fields:
+          enabled:
+            type: boolean
+            default: false
+
+          branches:
+            type: array
+            required: false
+            default: ["main"]
+            description: "자동 배포할 브랜치"
+
+          approval_required:
+            type: boolean
+            default: true
+            description: "프로덕션 배포 승인 필요 여부"
+
+      rollback:
+        type: object
+        required: false
+        description: "롤백 설정"
+        fields:
+          enabled:
+            type: boolean
+            default: true
+
+          auto:
+            type: boolean
+            default: false
+            description: "헬스 체크 실패 시 자동 롤백"
+
+# ============================================================================
+# VALIDATION RULES
+# ============================================================================
+validation_rules:
+  - name: "unique_project_id"
+    description: "프로젝트 ID는 시스템 전체에서 고유해야 함"
+
+  - name: "unique_ports"
+    description: "할당된 포트는 다른 프로젝트와 중복되지 않아야 함"
+
+  - name: "unique_redis_db"
+    description: "Redis DB 인덱스는 프로젝트별로 고유해야 함"
+
+  - name: "domain_pattern"
+    description: "도메인은 leocompany.com 서브도메인이어야 함"
+
+  - name: "resource_limits"
+    description: "할당된 리소스가 서버 용량을 초과하지 않아야 함"
+
+# ============================================================================
+# NOTES
+# ============================================================================
+notes: |
+  이 스키마는 CodeB 프로젝트 매니페스트의 표준 구조를 정의합니다.
+
+  주요 특징:
+  - 선언적 인프라 정의 (IaC Layer 3)
+  - 자동 포트 할당 및 충돌 방지
+  - Core CMS 템플릿 기반 표준화
+  - 환경별 설정 분리 (dev/staging/prod)
+  - 자동 백업 및 모니터링 통합
+
+  사용 방법:
+  1. 이 스키마를 참조하여 프로젝트 매니페스트 YAML 작성
+  2. codeb-deploy MCP 서버로 배포
+  3. 자동으로 인프라 프로비저닝 및 배포 실행
+
+  관련 문서:
+  - ARCHITECTURE.md: 4-Layer 아키텍처 설명
+  - example-project.yaml: 실제 사용 예제

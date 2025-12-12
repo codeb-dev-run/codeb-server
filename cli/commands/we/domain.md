@@ -33,11 +33,11 @@ MCP codeb-deploy를 통해 DNS 설정, SSL 인증서, Caddy 리버스 프록시 
 
 ## 도메인 구조
 ```
-기본 도메인: codeb.dev, one-q.xyz
+기본 도메인: one-q.xyz
 서브도메인 형식:
-  - myapp.codeb.dev (production)
-  - myapp-staging.codeb.dev (staging)
-  - myapp-pr-123.codeb.dev (preview)
+  - myapp.one-q.xyz (production)
+  - myapp-staging.one-q.xyz (staging)
+  - myapp-pr-123.one-q.xyz (preview)
 ```
 
 ## MCP 연동
@@ -48,11 +48,11 @@ MCP codeb-deploy를 통해 DNS 설정, SSL 인증서, Caddy 리버스 프록시 
 
 ## 예제
 ```
-/we:domain setup myapp.codeb.dev --ssl --project myapp
+/we:domain setup myapp.one-q.xyz --ssl --project myapp
 /we:domain setup example.com --ssl --www
-/we:domain check myapp.codeb.dev
+/we:domain check myapp.one-q.xyz
 /we:domain list
-/we:domain remove myapp.codeb.dev --force
+/we:domain remove myapp.one-q.xyz --force
 ```
 
 ## 관련 명령어

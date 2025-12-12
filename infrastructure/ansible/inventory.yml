@@ -1,0 +1,31 @@
+# CodeB Ansible Inventory
+#
+# 서버 목록 및 변수 정의
+
+all:
+  vars:
+    ansible_user: root
+    ansible_python_interpreter: /usr/bin/python3
+
+  children:
+    # Production 서버
+    production:
+      hosts:
+        codeb-prod:
+          ansible_host: 141.164.60.51
+          env: production
+          domain: codeb.dev
+
+    # Staging 서버 (향후 추가)
+    staging:
+      hosts: {}
+        # codeb-staging:
+        #   ansible_host: x.x.x.x
+        #   env: staging
+        #   domain: staging.codeb.dev
+
+    # 모든 CodeB 서버
+    codeb:
+      children:
+        production: {}
+        staging: {}

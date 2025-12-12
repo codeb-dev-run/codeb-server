@@ -1,0 +1,53 @@
+# CodeB Redis Container - Quadlet 설정
+# 위치: /etc/containers/systemd/codeb-redis.container
+# 적용: systemctl --user daemon-reload && systemctl --user enable --now codeb-redis
+
+[Unit]
+Description=CodeB Redis Cache Container
+Documentation=https://hub.docker.com/_/redis
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+# 이미지 설정
+Image=docker.io/library/redis:7-alpine
+ContainerName=codeb-redis
+
+# 포트 매핑
+PublishPort=6379:6379
+
+# Redis 설정 파일 (선택)
+# Volume=/opt/codeb/config/redis.conf:/usr/local/etc/redis/redis.conf:ro
+# Exec=redis-server /usr/local/etc/redis/redis.conf
+
+# 볼륨 마운트 (영속화 필요 시)
+Volume=/opt/codeb/data/redis:/data:Z
+
+# 네트워크
+Network=codeb-network
+
+# 헬스체크
+HealthCmd=redis-cli ping | grep -q PONG || exit 1
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=3
+HealthStartPeriod=10s
+
+# 리소스 제한
+# Memory=512M
+# CPUQuota=25%
+
+# Redis 메모리 정책 설정
+Environment=REDIS_EXTRA_FLAGS=--maxmemory 256mb --maxmemory-policy allkeys-lru
+
+[Service]
+Restart=always
+RestartSec=5s
+TimeoutStartSec=60
+TimeoutStopSec=30
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target default.target

@@ -1,0 +1,58 @@
+# CodeB Infrastructure - 변수 값 설정
+#
+# 사용법:
+#   1. 이 파일을 terraform.tfvars로 복사
+#   2. 값 설정
+#   3. terraform apply
+#
+# 주의: terraform.tfvars는 .gitignore에 추가하세요!
+
+# =====================================================
+# 필수 설정
+# =====================================================
+
+# Vultr API 키 (https://my.vultr.com/settings/#settingsapi)
+vultr_api_key = "YOUR_VULTR_API_KEY"
+
+# SSH 공개키 내용
+ssh_public_key = "ssh-ed25519 AAAA... your-email@example.com"
+
+# =====================================================
+# 프로젝트 설정
+# =====================================================
+
+project_name = "codeb"
+environment  = "production"  # production, staging, development
+
+# =====================================================
+# Vultr 설정
+# =====================================================
+
+# 리전: icn(서울), nrt(도쿄), sgp(싱가포르)
+vultr_region = "icn"
+
+# 플랜 (10인 팀 기준 권장: vc2-2c-4gb)
+vultr_plan = "vc2-2c-4gb"
+
+# 자동 백업 ($1/월 추가)
+enable_backups = true
+
+# =====================================================
+# 네트워크 설정
+# =====================================================
+
+# 메인 도메인
+domain = "codeb.dev"
+
+# Terraform으로 DNS 관리 (PowerDNS 사용 시 false)
+manage_dns = false
+
+# SSH 접근 허용 IP (보안을 위해 팀 IP만 허용 권장)
+# 예: "203.0.113.0/24" 또는 "0.0.0.0/0" (모든 IP)
+allowed_ssh_cidr = "0.0.0.0/0"
+
+# =====================================================
+# 추가 태그
+# =====================================================
+
+tags = ["team:devops", "cost-center:engineering"]

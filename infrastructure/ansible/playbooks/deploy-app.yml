@@ -1,0 +1,192 @@
+---
+# CodeB Application Deployment Playbook
+#
+# 앱 배포를 자동화합니다.
+#
+# 실행:
+#   ansible-playbook -i inventory.yml playbooks/deploy-app.yml -e "image_tag=latest"
+
+- name: Deploy CodeB Application
+  hosts: codeb
+  become: yes
+  gather_facts: yes
+
+  vars:
+    project_name: codeb
+    image_registry: ghcr.io/your-org
+    image_name: codeb-app
+    image_tag: "{{ lookup('env', 'IMAGE_TAG') | default('latest', true) }}"
+    container_port: 3000
+    healthcheck_path: /health
+    healthcheck_timeout: 60
+    rollback_on_failure: true
+
+  handlers:
+    - name: restart app
+      shell: |
+        podman stop {{ project_name }}-app || true
+        podman rm {{ project_name }}-app || true
+        podman run -d \
+          --name {{ project_name }}-app \
+          --network {{ project_name }}-network \
+          --env-file /opt/codeb/config/app.env \
+          -p {{ container_port }}:{{ container_port }} \
+          -v /opt/codeb/data/app:/app/data:Z \
+          -v /opt/codeb/logs/app:/app/logs:Z \
+          {{ image_registry }}/{{ image_name }}:{{ image_tag }}
+
+  tasks:
+    # =========================================================
+    # Pre-deployment checks
+    # =========================================================
+    - name: Check if env file exists
+      stat:
+        path: /opt/codeb/config/app.env
+      register: env_file
+
+    - name: Fail if env file missing
+      fail:
+        msg: "환경변수 파일이 없습니다: /opt/codeb/config/app.env"
+      when: not env_file.stat.exists
+
+    - name: Get current image ID (for rollback)
+      shell: podman inspect {{ project_name }}-app --format '{{ '{{' }}.Image{{ '}}' }}' 2>/dev/null || echo "none"
+      register: previous_image
+      changed_when: false
+
+    - name: Store rollback info
+      set_fact:
+        rollback_image: "{{ previous_image.stdout }}"
+
+    # =========================================================
+    # Pull new image
+    # =========================================================
+    - name: Login to GitHub Container Registry
+      shell: |
+        echo "{{ lookup('env', 'GITHUB_TOKEN') }}" | podman login ghcr.io -u {{ lookup('env', 'GITHUB_USER') | default('github', true) }} --password-stdin
+      when: lookup('env', 'GITHUB_TOKEN') | length > 0
+      no_log: true
+      changed_when: false
+
+    - name: Pull new image
+      command: podman pull {{ image_registry }}/{{ image_name }}:{{ image_tag }}
+      register: pull_result
+
+    - name: Display pull result
+      debug:
+        msg: "이미지 다운로드: {{ pull_result.stdout_lines[-1] | default('완료') }}"
+
+    # =========================================================
+    # Stop existing container
+    # =========================================================
+    - name: Stop existing container
+      command: podman stop {{ project_name }}-app
+      register: stop_result
+      changed_when: stop_result.rc == 0
+      failed_when: false
+
+    - name: Remove existing container
+      command: podman rm {{ project_name }}-app
+      register: rm_result
+      changed_when: rm_result.rc == 0
+      failed_when: false
+
+    # =========================================================
+    # Start new container
+    # =========================================================
+    - name: Start new container
+      shell: |
+        podman run -d \
+          --name {{ project_name }}-app \
+          --network {{ project_name }}-network \
+          --env-file /opt/codeb/config/app.env \
+          -p {{ container_port }}:{{ container_port }} \
+          -v /opt/codeb/data/app:/app/data:Z \
+          -v /opt/codeb/logs/app:/app/logs:Z \
+          --restart=always \
+          {{ image_registry }}/{{ image_name }}:{{ image_tag }}
+      register: start_result
+
+    - name: Display container ID
+      debug:
+        msg: "컨테이너 시작: {{ start_result.stdout[:12] }}"
+
+    # =========================================================
+    # Health check
+    # =========================================================
+    - name: Wait for container to start
+      pause:
+        seconds: 10
+
+    - name: Health check
+      uri:
+        url: "http://localhost:{{ container_port }}{{ healthcheck_path }}"
+        method: GET
+        status_code: 200
+        timeout: 10
+      register: healthcheck
+      retries: "{{ (healthcheck_timeout / 10) | int }}"
+      delay: 10
+      until: healthcheck.status == 200
+      ignore_errors: yes
+
+    # =========================================================
+    # Rollback on failure
+    # =========================================================
+    - name: Rollback on health check failure
+      block:
+        - name: Stop failed container
+          command: podman stop {{ project_name }}-app
+          failed_when: false
+
+        - name: Remove failed container
+          command: podman rm {{ project_name }}-app
+          failed_when: false
+
+        - name: Start previous version
+          shell: |
+            podman run -d \
+              --name {{ project_name }}-app \
+              --network {{ project_name }}-network \
+              --env-file /opt/codeb/config/app.env \
+              -p {{ container_port }}:{{ container_port }} \
+              -v /opt/codeb/data/app:/app/data:Z \
+              -v /opt/codeb/logs/app:/app/logs:Z \
+              --restart=always \
+              {{ rollback_image }}
+          when: rollback_image != "none"
+
+        - name: Fail deployment
+          fail:
+            msg: |
+              ❌ 배포 실패!
+              헬스체크 실패로 이전 버전으로 롤백되었습니다.
+              로그 확인: podman logs {{ project_name }}-app
+      when:
+        - healthcheck.status is not defined or healthcheck.status != 200
+        - rollback_on_failure
+
+    # =========================================================
+    # Cleanup
+    # =========================================================
+    - name: Prune old images
+      command: podman image prune -f
+      changed_when: false
+
+    # =========================================================
+    # Success message
+    # =========================================================
+    - name: Display success message
+      debug:
+        msg: |
+          ✅ 배포 성공!
+
+          이미지: {{ image_registry }}/{{ image_name }}:{{ image_tag }}
+          컨테이너: {{ project_name }}-app
+          포트: {{ container_port }}
+
+          확인:
+          - 상태: podman ps
+          - 로그: podman logs -f {{ project_name }}-app
+          - 헬스체크: curl http://localhost:{{ container_port }}{{ healthcheck_path }}
+      when: healthcheck.status is defined and healthcheck.status == 200

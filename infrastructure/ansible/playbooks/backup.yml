@@ -1,0 +1,140 @@
+---
+# CodeB Backup Playbook
+#
+# 데이터베이스 및 설정 백업을 수행합니다.
+#
+# 실행:
+#   ansible-playbook -i inventory.yml playbooks/backup.yml
+#
+# Cron 설정:
+#   0 2 * * * ansible-playbook -i /path/to/inventory.yml /path/to/playbooks/backup.yml
+
+- name: CodeB Backup
+  hosts: codeb
+  become: yes
+  gather_facts: yes
+
+  vars:
+    backup_dir: /opt/codeb/backup
+    backup_retention_days: 7
+    postgres_container: codeb-postgres
+    postgres_db: codeb
+    postgres_user: codeb
+
+  tasks:
+    # =========================================================
+    # 준비
+    # =========================================================
+    - name: Set backup timestamp
+      set_fact:
+        backup_timestamp: "{{ ansible_date_time.date }}_{{ ansible_date_time.hour }}{{ ansible_date_time.minute }}"
+
+    - name: Create backup directory
+      file:
+        path: "{{ backup_dir }}/{{ backup_timestamp }}"
+        state: directory
+        mode: '0700'
+
+    # =========================================================
+    # PostgreSQL 백업
+    # =========================================================
+    - name: Check if PostgreSQL container is running
+      command: podman inspect {{ postgres_container }} --format '{{ '{{' }}.State.Running{{ '}}' }}'
+      register: postgres_running
+      changed_when: false
+      failed_when: false
+
+    - name: Backup PostgreSQL database
+      shell: |
+        podman exec {{ postgres_container }} pg_dump -U {{ postgres_user }} {{ postgres_db }} | gzip > {{ backup_dir }}/{{ backup_timestamp }}/postgres_{{ postgres_db }}.sql.gz
+      when: postgres_running.stdout == "true"
+      register: postgres_backup
+
+    - name: Display PostgreSQL backup result
+      debug:
+        msg: "PostgreSQL 백업: {{ 'success' if postgres_backup.rc == 0 else 'failed' }}"
+      when: postgres_running.stdout == "true"
+
+    # =========================================================
+    # Redis 백업 (선택적)
+    # =========================================================
+    - name: Check if Redis container is running
+      command: podman inspect codeb-redis --format '{{ '{{' }}.State.Running{{ '}}' }}'
+      register: redis_running
+      changed_when: false
+      failed_when: false
+
+    - name: Backup Redis data
+      shell: |
+        podman exec codeb-redis redis-cli BGSAVE
+        sleep 5
+        cp /opt/codeb/data/redis/dump.rdb {{ backup_dir }}/{{ backup_timestamp }}/redis_dump.rdb 2>/dev/null || true
+      when: redis_running.stdout == "true"
+      failed_when: false
+
+    # =========================================================
+    # 설정 파일 백업
+    # =========================================================
+    - name: Backup configuration files
+      archive:
+        path:
+          - /opt/codeb/config
+          - /etc/caddy/Caddyfile
+        dest: "{{ backup_dir }}/{{ backup_timestamp }}/config_backup.tar.gz"
+        format: gz
+      failed_when: false
+
+    # =========================================================
+    # 백업 검증
+    # =========================================================
+    - name: List backup files
+      find:
+        paths: "{{ backup_dir }}/{{ backup_timestamp }}"
+        file_type: file
+      register: backup_files
+
+    - name: Display backup summary
+      debug:
+        msg: |
+          📦 백업 완료: {{ backup_timestamp }}
+
+          백업 파일:
+          {% for file in backup_files.files %}
+          - {{ file.path | basename }} ({{ (file.size / 1024 / 1024) | round(2) }} MB)
+          {% endfor %}
+
+          위치: {{ backup_dir }}/{{ backup_timestamp }}
+
+    # =========================================================
+    # 오래된 백업 정리
+    # =========================================================
+    - name: Find old backups
+      find:
+        paths: "{{ backup_dir }}"
+        file_type: directory
+        age: "{{ backup_retention_days }}d"
+      register: old_backups
+
+    - name: Remove old backups
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_backups.files }}"
+      when: old_backups.files | length > 0
+
+    - name: Display cleanup result
+      debug:
+        msg: "🧹 {{ old_backups.files | length }}개의 오래된 백업 삭제됨"
+      when: old_backups.files | length > 0
+
+    # =========================================================
+    # 디스크 사용량 확인
+    # =========================================================
+    - name: Check backup disk usage
+      shell: du -sh {{ backup_dir }}
+      register: disk_usage
+      changed_when: false
+
+    - name: Display disk usage
+      debug:
+        msg: "💾 백업 총 용량: {{ disk_usage.stdout.split()[0] }}"

@@ -1,0 +1,302 @@
+# CodeB Project Manifest Example
+# 음식 배달 서비스 프로젝트 예제
+#
+# 이 매니페스트는 실제 프로덕션 환경에서 사용 가능한 완전한 예제입니다.
+# project-manifest.schema.yaml 스키마를 따릅니다.
+
+# ============================================================================
+# PROJECT: 프로젝트 기본 정보
+# ============================================================================
+project:
+  id: food-delivery-app
+  name: "음식 배달 서비스"
+  type: cms
+  template: core-cms
+  owner: leo
+  team:
+    - frontend-dev
+    - backend-dev
+    - designer
+  description: "고객과 레스토랑을 연결하는 음식 배달 플랫폼. 실시간 주문 추적, 결제 연동, 리뷰 시스템 포함."
+  repository: https://github.com/leocompany/food-delivery-app
+  status: production
+
+# ============================================================================
+# ENVIRONMENT: 환경 설정
+# ============================================================================
+environment:
+  domain:
+    primary: food-delivery.leocompany.com
+    aliases:
+      - www.food-delivery.leocompany.com
+      - delivery.leocompany.com
+    ssl: auto  # Caddy 자동 SSL 발급
+
+  base: production
+
+  variables:
+    NODE_ENV: production
+    API_BASE_URL: https://api.food-delivery.leocompany.com
+    NEXT_PUBLIC_APP_NAME: "Leo Food Delivery"
+    NEXT_PUBLIC_API_TIMEOUT: "30000"
+    LOG_LEVEL: info
+
+  # 민감 정보는 Vault에서 자동 주입
+  secrets:
+    - DATABASE_URL
+    - NEXTAUTH_SECRET
+    - NEXTAUTH_URL
+    - SMTP_HOST
+    - SMTP_PORT
+    - SMTP_USER
+    - SMTP_PASSWORD
+    - PG_API_KEY
+    - PG_SECRET_KEY
+    - MINIO_ACCESS_KEY
+    - MINIO_SECRET_KEY
+    - SLACK_WEBHOOK_URL
+
+# ============================================================================
+# SERVERS: 서버 인프라 설정
+# ============================================================================
+servers:
+  app:
+    host: 45.76.178.123  # Vultr Seoul Region
+    ssh_port: 22
+    user: deploy
+
+  database:
+    host: 45.76.178.123  # 동일 서버 (Podman PostgreSQL 컨테이너)
+    port: 5432
+    name: food_delivery_db
+    user: postgres
+
+  redis:
+    host: 45.76.178.123
+    port: 6379
+    db_index: 2  # 프로젝트별 Redis DB 분리 (0: 시스템, 1: 캐시, 2: food-delivery)
+
+  minio:
+    host: minio.leocompany.com
+    bucket: food-delivery-uploads
+    public: true  # 업로드된 이미지 퍼블릭 액세스 허용
+
+# ============================================================================
+# RESOURCES: 리소스 할당
+# ============================================================================
+resources:
+  ports:
+    app: 3005  # 자동 할당 (3000-3999 범위)
+    internal: 3006  # 내부 서비스 포트 (메트릭, 헬스체크)
+
+  compute:
+    cpu: "2.0"  # 2 CPU 코어
+    memory: 2g  # 2GB 메모리
+    replicas: 1  # 단일 인스턴스 (향후 로드밸런싱 시 증가 가능)
+
+  storage:
+    persistent: true  # 영구 볼륨 사용 (로그, 캐시)
+    size: 10G
+
+# ============================================================================
+# FEATURES: 기능 모듈 설정
+# ============================================================================
+features:
+  # Core CMS 기본 기능
+  core:
+    authentication:
+      enabled: true
+      providers:
+        - email
+        - google
+        - kakao
+
+    authorization:
+      enabled: true
+      roles:
+        - admin        # 전체 관리 권한
+        - restaurant   # 레스토랑 관리자
+        - rider        # 배달 라이더
+        - customer     # 일반 고객
+
+    admin_panel:
+      enabled: true
+      path: /admin
+
+    file_upload:
+      enabled: true
+      max_size: 10MB
+      allowed_types:
+        - image/jpeg
+        - image/png
+        - image/webp
+      storage: minio
+
+  # 게시판 기능
+  boards:
+    enabled: true
+    types:
+      - notice     # 공지사항
+      - qna        # 고객 문의
+      - review     # 음식점 리뷰
+      - faq        # 자주 묻는 질문
+
+  # 커스텀 기능 모듈
+  custom:
+    - name: payment
+      description: "PG 결제 연동 (토스페이먼츠, 카카오페이)"
+      enabled: true
+
+    - name: delivery-tracking
+      description: "실시간 배달 추적 (WebSocket)"
+      enabled: true
+
+    - name: push-notifications
+      description: "주문 상태 푸시 알림 (FCM)"
+      enabled: true
+
+    - name: review-system
+      description: "음식점 및 라이더 평가 시스템"
+      enabled: true
+
+    - name: coupon-system
+      description: "쿠폰 및 프로모션 관리"
+      enabled: true
+
+# ============================================================================
+# MONITORING: 모니터링 및 알림
+# ============================================================================
+monitoring:
+  health_check:
+    enabled: true
+    endpoint: /api/health
+    interval: 30s
+    timeout: 5s
+    retries: 3
+
+  notifications:
+    slack:
+      enabled: true
+      webhook_url: ${SLACK_WEBHOOK_URL}  # Vault에서 주입
+      channels:
+        - "#food-delivery-alerts"
+        - "#deployments"
+      events:
+        - deployment
+        - health_check_failure
+        - error_rate_high
+
+    email:
+      enabled: true
+      recipients:
+        - leo@leocompany.com
+        - devops@leocompany.com
+      events:
+        - critical_error
+        - deployment_failure
+
+  metrics:
+    enabled: true
+    endpoint: /metrics
+    scrape_interval: 15s
+
+# ============================================================================
+# BACKUP: 백업 설정
+# ============================================================================
+backup:
+  enabled: true
+
+  # 매일 새벽 2시 백업
+  schedule: "0 2 * * *"
+
+  retention:
+    daily: 7      # 7일간 일일 백업 보관
+    weekly: 4     # 4주간 주간 백업 보관
+    monthly: 6    # 6개월간 월간 백업 보관
+
+  targets:
+    - database     # PostgreSQL 덤프
+    - uploads      # MinIO 버킷 (음식/레스토랑 이미지)
+    - config       # 환경 설정 파일
+
+  storage:
+    type: minio
+    path: /backup/food-delivery-app
+    encryption: true
+
+# ============================================================================
+# DEPLOYMENT: 배포 설정
+# ============================================================================
+deployment:
+  strategy: blue-green  # 무중단 배포
+
+  auto_deploy:
+    enabled: true
+    branches:
+      - main      # main 브랜치 → 프로덕션 배포
+      - develop   # develop 브랜치 → 개발 환경 배포
+    approval_required: true  # 프로덕션 배포 시 Leo 승인 필요
+
+  rollback:
+    enabled: true
+    auto: true  # 헬스 체크 3회 연속 실패 시 자동 롤백
+
+  # Blue-Green 배포 설정
+  blue_green:
+    health_check_delay: 10s   # 새 버전 기동 후 헬스체크 대기 시간
+    switch_delay: 5s          # 트래픽 전환 전 대기 시간
+    keep_old_version: 1h      # 이전 버전 유지 시간 (롤백 대비)
+
+# ============================================================================
+# DEPENDENCIES: 의존성 프로젝트
+# ============================================================================
+dependencies:
+  # 다른 프로젝트에 대한 의존성 (API Gateway 패턴)
+  services:
+    - id: payment-gateway-api
+      type: api
+      required: true
+      endpoint: https://payment-api.leocompany.com
+
+    - id: notification-service
+      type: microservice
+      required: true
+      endpoint: https://notification.leocompany.com
+
+# ============================================================================
+# METADATA: 추가 메타데이터
+# ============================================================================
+metadata:
+  tags:
+    - production
+    - e-commerce
+    - real-time
+
+  labels:
+    project_type: b2c
+    business_critical: true
+    pci_compliance: required  # 결제 정보 처리로 PCI DSS 준수 필요
+
+  contacts:
+    technical: leo@leocompany.com
+    business: ceo@leocompany.com
+
+  sla:
+    uptime: 99.9%           # 월 43분 다운타임 허용
+    response_time_p95: 200ms
+    error_rate_max: 0.1%
+
+# ============================================================================
+# NOTES
+# ============================================================================
+# 배포 명령어:
+#   codeb deploy --manifest manifests/food-delivery-app.yaml
+#
+# 상태 확인:
+#   codeb status food-delivery-app
+#
+# 로그 확인:
+#   codeb logs food-delivery-app --follow
+#
+# 롤백:
+#   codeb rollback food-delivery-app

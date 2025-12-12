@@ -28,19 +28,21 @@ import { rollback } from '../src/commands/rollback.js';
 import { workflow } from '../src/commands/workflow.js';
 import { ssh } from '../src/commands/ssh.js';
 import { help } from '../src/commands/help.js';
+import { config } from '../src/commands/config.js';
+import { getServerHost, getServerUser, getDbPassword } from '../src/lib/config.js';
 
 const program = new Command();
 
 // CLI Header
 console.log(chalk.cyan.bold('\n╔═══════════════════════════════════════════════╗'));
-console.log(chalk.cyan.bold('║   /we: Web Deploy CLI v2.3.1                  ║'));
+console.log(chalk.cyan.bold('║   /we: Web Deploy CLI v2.4.0                  ║'));
 console.log(chalk.cyan.bold('║   배포 • 분석 • 워크플로우 • 최적화           ║'));
 console.log(chalk.cyan.bold('╚═══════════════════════════════════════════════╝\n'));
 
 program
   .name('/we:')
   .description('/we: Web Deploy CLI - 7-Agent 시스템으로 배포, 분석, 워크플로우, 최적화')
-  .version('2.3.1');
+  .version('2.4.0');
 
 // Deploy Command
 program
@@ -152,13 +154,13 @@ program
   .option('--production-redis-port <port>', 'Production Redis port', '6379')
   .option('--staging-domain <domain>', 'Staging domain')
   .option('--production-domain <domain>', 'Production domain')
-  .option('--db-password <password>', 'Database password', 'postgres')
+  .option('--db-password <password>', 'Database password (default: from config)')
   .option('--image <image>', 'Docker image name')
   .option('--env <json>', 'Environment variables as JSON')
   .option('--volumes <list>', 'Comma-separated volume mounts')
   .option('--depends <list>', 'Comma-separated service dependencies')
-  .option('--host <host>', 'Deployment server host', '141.164.60.51')
-  .option('--user <user>', 'Deployment server user', 'root')
+  .option('--host <host>', 'Deployment server host (default: from config)')
+  .option('--user <user>', 'Deployment server user (default: from config)')
   .option('--database', 'Include PostgreSQL database (default: true)')
   .option('--no-database', 'Exclude PostgreSQL database')
   .option('--redis', 'Include Redis cache (default: true)')
@@ -185,12 +187,22 @@ program
   .option('--no-interactive', 'Non-interactive mode')
   .action(ssh);
 
+// Config Command
+program
+  .command('config')
+  .description('Manage CLI configuration (init|show|check|set|path)')
+  .argument('[action]', 'Action (init|show|check|set|path)', 'show')
+  .option('--key <key>', 'Configuration key for set action')
+  .option('--value <value>', 'Configuration value for set action')
+  .option('--no-interactive', 'Non-interactive mode')
+  .action(config);
+
 // Help/Doc Command
 program
   .command('help')
   .aliases(['doc', 'docs'])
   .description('Show detailed documentation for commands')
-  .argument('[topic]', 'Help topic (overview|deploy|workflow|analyze|health|domain|monitor|rollback|agent|optimize|quickref)')
+  .argument('[topic]', 'Help topic (overview|deploy|workflow|analyze|health|domain|monitor|rollback|agent|optimize|config|quickref)')
   .option('-a, --all', 'Show all documentation topics')
   .option('--list', 'List all available topics')
   .action(help);

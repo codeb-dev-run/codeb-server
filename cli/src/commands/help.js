@@ -10,7 +10,7 @@ const DOCS = {
   overview: `
 ${chalk.cyan.bold('╔═══════════════════════════════════════════════════════════════════╗')}
 ${chalk.cyan.bold('║                    /we: Web Deploy CLI                            ║')}
-${chalk.cyan.bold('║                    Documentation v2.3.1                           ║')}
+${chalk.cyan.bold('║                    Documentation v2.4.0                           ║')}
 ${chalk.cyan.bold('╚═══════════════════════════════════════════════════════════════════╝')}
 
 ${chalk.yellow.bold('OVERVIEW')}
@@ -146,7 +146,7 @@ ${chalk.yellow('EXAMPLES')}
   $ /we: workflow github-actions myapp --staging-port 3001 --production-port 3000
 
   ${chalk.gray('# Non-interactive initialization')}
-  $ /we: workflow init myapp --no-interactive --database --staging-domain myapp-staging.codeb.dev
+  $ /we: workflow init myapp --no-interactive --database --staging-domain myapp-staging.one-q.xyz
 
 ${chalk.yellow('GENERATED FILES')}
   ${chalk.gray('workflow init generates:')}
@@ -158,7 +158,7 @@ ${chalk.yellow('GENERATED FILES')}
   │   └── deploy.yml                   ${chalk.gray('# GitHub Actions CI/CD')}
   └── Dockerfile                       ${chalk.gray('# Optimized multi-stage Dockerfile')}
 
-${chalk.yellow('NEW ACTIONS (v2.3.1)')}
+${chalk.yellow('ACTIONS (v2.4.0)')}
   ${chalk.gray('# Scan server status and detect issues')}
   $ /we: workflow scan myapp
 
@@ -287,19 +287,19 @@ ${chalk.yellow('OPTIONS')}
 
 ${chalk.yellow('EXAMPLES')}
   ${chalk.gray('# Setup domain with SSL')}
-  $ /we: domain setup myapp.codeb.dev --ssl --project myapp
+  $ /we: domain setup myapp.one-q.xyz --ssl --project myapp
 
   ${chalk.gray('# Setup with www redirect')}
   $ /we: domain setup example.com --ssl --www
 
   ${chalk.gray('# Check domain status')}
-  $ /we: domain check myapp.codeb.dev
+  $ /we: domain check myapp.one-q.xyz
 
   ${chalk.gray('# List all domains')}
   $ /we: domain list
 
   ${chalk.gray('# Remove domain')}
-  $ /we: domain remove myapp.codeb.dev --force
+  $ /we: domain remove myapp.one-q.xyz --force
 `,
 
   monitor: `
@@ -476,7 +476,7 @@ ${chalk.yellow('WORKFLOW FOR NEW DEVELOPERS')}
   $ /we: ssh sync
 
   ${chalk.gray('4. Verify access')}
-  $ ssh root@141.164.60.51 "echo Connected!"
+  $ ssh root@<SERVER_HOST> "echo Connected!"
 `,
 
   quickref: `
@@ -503,8 +503,8 @@ ${chalk.yellow('MONITORING')}
   /we: monitor --threshold 90          ${chalk.gray('# Real-time monitoring')}
 
 ${chalk.yellow('DOMAIN MANAGEMENT')}
-  /we: domain setup app.codeb.dev --ssl  ${chalk.gray('# Setup domain')}
-  /we: domain check app.codeb.dev        ${chalk.gray('# Check status')}
+  /we: domain setup app.one-q.xyz --ssl  ${chalk.gray('# Setup domain')}
+  /we: domain check app.one-q.xyz        ${chalk.gray('# Check status')}
   /we: domain list                       ${chalk.gray('# List all domains')}
 
 ${chalk.yellow('ANALYSIS')}

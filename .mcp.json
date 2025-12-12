@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "codeb-deploy": {
+      "command": "node",
+      "args": [
+        "/Users/admin/new_project/codeb-server/codeb-deploy-system/mcp-server/dist/index.js"
+      ],
+      "env": {
+        "CODEB_SERVER_HOST": "141.164.60.51",
+        "CODEB_SERVER_USER": "root",
+        "CODEB_SSH_KEY_PATH": "/Users/admin/.ssh/id_rsa"
+      }
+    }
+  }
+}

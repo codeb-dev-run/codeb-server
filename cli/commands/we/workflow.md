@@ -31,9 +31,9 @@ CodeB 인프라에 자동 배포를 위한 Quadlet 컨테이너 파일과 GitHub
 - `--redis` - Redis 캐시 포함
 - `--staging-port` - Staging 환경 포트 (기본값: 3001)
 - `--production-port` - Production 환경 포트 (기본값: 3000)
-- `--staging-domain` - Staging 도메인 (예: myapp-staging.codeb.dev)
-- `--production-domain` - Production 도메인 (예: myapp.codeb.dev)
-- `--host` - 배포 서버 호스트 (기본값: 141.164.60.51)
+- `--staging-domain` - Staging 도메인 (예: myapp-staging.one-q.xyz)
+- `--production-domain` - Production 도메인 (예: myapp.one-q.xyz)
+- `--host` - 배포 서버 호스트 (기본값: config에서 로드)
 - `--no-tests` - CI/CD에서 테스트 건너뛰기
 - `--no-lint` - CI/CD에서 린팅 건너뛰기
 
@@ -62,11 +62,11 @@ workflow init 실행 시:
 
 ## 생성 후 작업
 ```bash
-# Quadlet 파일을 서버로 복사
-scp quadlet/*.container root@141.164.60.51:/etc/containers/systemd/
+# Quadlet 파일을 서버로 복사 (SERVER_HOST는 설정에서 확인)
+scp quadlet/*.container root@<SERVER_HOST>:/etc/containers/systemd/
 
 # 서비스 리로드 및 시작
-ssh root@141.164.60.51 "systemctl daemon-reload && systemctl start myapp.service"
+ssh root@<SERVER_HOST> "systemctl daemon-reload && systemctl start myapp.service"
 ```
 
 ## 관련 명령어

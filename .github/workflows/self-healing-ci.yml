@@ -1,0 +1,492 @@
+# =============================================================================
+# CodeB Self-Healing CI/CD Pipeline
+# =============================================================================
+# 목적: 빌드 에러 발생 시 Claude Code로 자동 수정 후 재시도
+# 핵심 원칙: 절대 코드를 삭제하여 문제를 해결하지 않음
+# 작성일: 2025-01-10
+# 버전: 1.0.0
+# =============================================================================
+
+name: Self-Healing CI/CD
+
+on:
+  push:
+    branches: [main, develop, 'feature/**']
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      skip_auto_fix:
+        description: 'Skip automatic error fixing'
+        required: false
+        default: 'false'
+        type: boolean
+
+# 동시 실행 방지 - 같은 브랜치에서 하나의 워크플로우만 실행
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  MAX_FIX_ATTEMPTS: 5
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ===========================================================================
+  # Job 1: 빌드 및 테스트
+  # ===========================================================================
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    outputs:
+      build_status: ${{ steps.build.outcome }}
+      test_status: ${{ steps.test.outcome }}
+      error_log: ${{ steps.capture-error.outputs.error_log }}
+      should_auto_fix: ${{ steps.check-auto-fix.outputs.should_fix }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type Check
+        id: typecheck
+        continue-on-error: true
+        run: npm run typecheck 2>&1 | tee typecheck.log
+
+      - name: Lint
+        id: lint
+        continue-on-error: true
+        run: npm run lint 2>&1 | tee lint.log
+
+      - name: Build
+        id: build
+        continue-on-error: true
+        run: npm run build 2>&1 | tee build.log
+
+      - name: Test
+        id: test
+        continue-on-error: true
+        run: npm run test 2>&1 | tee test.log
+
+      # 에러 로그 캡처
+      - name: Capture Error Logs
+        id: capture-error
+        if: steps.typecheck.outcome == 'failure' || steps.lint.outcome == 'failure' || steps.build.outcome == 'failure' || steps.test.outcome == 'failure'
+        run: |
+          echo "=== ERROR SUMMARY ===" > error_summary.log
+          echo "" >> error_summary.log
+
+          if [ "${{ steps.typecheck.outcome }}" == "failure" ]; then
+            echo "### TypeScript Errors ###" >> error_summary.log
+            cat typecheck.log >> error_summary.log
+            echo "" >> error_summary.log
+          fi
+
+          if [ "${{ steps.lint.outcome }}" == "failure" ]; then
+            echo "### Lint Errors ###" >> error_summary.log
+            cat lint.log >> error_summary.log
+            echo "" >> error_summary.log
+          fi
+
+          if [ "${{ steps.build.outcome }}" == "failure" ]; then
+            echo "### Build Errors ###" >> error_summary.log
+            cat build.log >> error_summary.log
+            echo "" >> error_summary.log
+          fi
+
+          if [ "${{ steps.test.outcome }}" == "failure" ]; then
+            echo "### Test Errors ###" >> error_summary.log
+            cat test.log >> error_summary.log
+          fi
+
+          # 에러 로그를 base64로 인코딩 (멀티라인 출력 처리)
+          ERROR_LOG=$(cat error_summary.log | base64 -w 0)
+          echo "error_log=$ERROR_LOG" >> $GITHUB_OUTPUT
+
+      - name: Check if Auto-Fix should run
+        id: check-auto-fix
+        run: |
+          if [ "${{ inputs.skip_auto_fix }}" == "true" ]; then
+            echo "should_fix=false" >> $GITHUB_OUTPUT
+          elif [ "${{ steps.typecheck.outcome }}" == "failure" ] || \
+               [ "${{ steps.lint.outcome }}" == "failure" ] || \
+               [ "${{ steps.build.outcome }}" == "failure" ] || \
+               [ "${{ steps.test.outcome }}" == "failure" ]; then
+            echo "should_fix=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_fix=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload Error Logs
+        if: steps.capture-error.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-logs
+          path: |
+            *.log
+          retention-days: 7
+
+      # 모든 체크 통과 시 성공
+      - name: Final Status Check
+        if: steps.typecheck.outcome == 'success' && steps.lint.outcome == 'success' && steps.build.outcome == 'success' && steps.test.outcome == 'success'
+        run: echo "✅ All checks passed!"
+
+  # ===========================================================================
+  # Job 2: 자동 에러 수정 (Claude Code 연동)
+  # ===========================================================================
+  auto-fix:
+    name: Auto Fix with AI
+    needs: build
+    if: needs.build.outputs.should_auto_fix == 'true' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download Error Logs
+        uses: actions/download-artifact@v4
+        with:
+          name: error-logs
+          path: ./error-logs
+
+      - name: Setup Git
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+      - name: Parse Error Logs
+        id: parse-errors
+        run: |
+          # 에러 로그 디코딩
+          ERROR_LOG=$(echo "${{ needs.build.outputs.error_log }}" | base64 -d)
+          echo "Decoded error log:"
+          echo "$ERROR_LOG"
+
+          # 에러 유형 분류
+          ERROR_TYPES=""
+          if echo "$ERROR_LOG" | grep -q "TypeScript\|TS[0-9]"; then
+            ERROR_TYPES="$ERROR_TYPES typescript"
+          fi
+          if echo "$ERROR_LOG" | grep -q "eslint\|ESLint"; then
+            ERROR_TYPES="$ERROR_TYPES lint"
+          fi
+          if echo "$ERROR_LOG" | grep -q "Cannot find module\|Module not found"; then
+            ERROR_TYPES="$ERROR_TYPES import"
+          fi
+          if echo "$ERROR_LOG" | grep -q "test\|Test\|expect\|jest"; then
+            ERROR_TYPES="$ERROR_TYPES test"
+          fi
+
+          echo "error_types=$ERROR_TYPES" >> $GITHUB_OUTPUT
+
+      # =========================================================================
+      # AI 수정 요청 (GitHub Copilot API 사용)
+      # =========================================================================
+      - name: Request AI Fix (GitHub Copilot)
+        id: ai-fix
+        env:
+          ERROR_LOG: ${{ needs.build.outputs.error_log }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 에러 로그 디코딩
+          ERROR_LOG_DECODED=$(echo "$ERROR_LOG" | base64 -d)
+
+          # GitHub Copilot API 요청 페이로드 생성
+          cat > fix_request.json << PAYLOAD_EOF
+          {
+            "messages": [
+              {
+                "role": "system",
+                "content": "당신은 코드 빌드 에러를 수정하는 전문가입니다.\n\n## 절대 금지 규칙 (코드 품질)\n1. ❌ 코드를 삭제하여 문제를 해결하지 마세요\n2. ❌ 테스트를 skip하거나 제거하지 마세요\n3. ❌ @ts-ignore, @ts-nocheck 추가 금지\n4. ❌ eslint-disable 추가 금지\n5. ❌ any 타입 사용 금지\n6. ❌ console.log로 디버깅하지 마세요\n\n## 절대 금지 규칙 (에러 우회)\n7. ❌ || true 로 명령 실패를 무시하지 마세요\n8. ❌ || echo 'warning' 으로 에러를 경고로 바꾸지 마세요\n9. ❌ try-catch로 에러를 삼키지 마세요 (반드시 재throw 또는 적절한 처리)\n10. ❌ continue-on-error: true 사용 금지\n11. ❌ 네트워크/DB 연결 실패를 무시하고 진행하지 마세요\n12. ❌ fallback 이라는 이름으로 다른 방식으로 우회하지 마세요\n\n## 절대 금지 규칙 (인프라)\n13. ❌ 네트워크 에러 시 --network 플래그를 제거하지 마세요\n14. ❌ IP 직접 하드코딩으로 DNS/서비스 디스커버리 우회 금지\n15. ❌ 포트 충돌 시 임의의 다른 포트로 변경하지 마세요\n16. ❌ 권한 에러 시 chmod 777 또는 --privileged 사용 금지\n\n## 허용되는 수정\n1. ✅ 타입 정의 추가/수정 (interface, type 생성)\n2. ✅ 누락된 import 추가\n3. ✅ 로직 버그 수정 (올바른 로직으로 교체)\n4. ✅ 테스트 assertion 수정 (기대값이 잘못된 경우)\n5. ✅ 누락된 파일/함수 생성\n6. ✅ 올바른 타입 캐스팅 추가\n7. ✅ null/undefined 체크 추가\n\n## 응답 형식 (JSON)\n{\"fixes\": [{\"file\": \"경로\", \"description\": \"설명\", \"changes\": [{\"line_start\": 줄, \"line_end\": 줄, \"original\": \"원본\", \"replacement\": \"수정\"}]}], \"explanation\": \"요약\"}"
+              },
+              {
+                "role": "user",
+                "content": "다음 빌드 에러를 수정해주세요:\n\n$ERROR_LOG_DECODED"
+              }
+            ],
+            "model": "gpt-4o"
+          }
+          PAYLOAD_EOF
+
+          # GitHub Copilot API 호출 (GitHub Models API)
+          RESPONSE=$(curl -s -X POST "https://models.github.ai/inference/chat/completions" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d @fix_request.json)
+
+          echo "$RESPONSE" > ai_response.json
+
+          # 응답에서 수정 사항 추출
+          if echo "$RESPONSE" | jq -e '.choices[0].message.content' > /dev/null 2>&1; then
+            echo "$RESPONSE" | jq -r '.choices[0].message.content' > fix_instructions.json
+            echo "has_fix=true" >> $GITHUB_OUTPUT
+          else
+            echo "AI 응답 파싱 실패"
+            cat ai_response.json
+            echo "has_fix=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Apply AI Fixes
+        id: apply-fixes
+        if: steps.ai-fix.outputs.has_fix == 'true'
+        run: |
+          # AI 수정 사항 적용 스크립트
+          python3 << 'PYTHON_EOF'
+          import json
+          import os
+          import sys
+
+          try:
+              with open('fix_instructions.json', 'r') as f:
+                  content = f.read()
+                  # JSON 블록 추출 (마크다운 코드 블록 처리)
+                  if '```json' in content:
+                      content = content.split('```json')[1].split('```')[0]
+                  elif '```' in content:
+                      content = content.split('```')[1].split('```')[0]
+                  fixes = json.loads(content)
+          except Exception as e:
+              print(f"Failed to parse fix instructions: {e}")
+              sys.exit(1)
+
+          applied_count = 0
+
+          for fix in fixes.get('fixes', []):
+              file_path = fix.get('file')
+              if not file_path or not os.path.exists(file_path):
+                  print(f"Skipping {file_path}: file not found")
+                  continue
+
+              with open(file_path, 'r') as f:
+                  lines = f.readlines()
+
+              for change in fix.get('changes', []):
+                  start = change.get('line_start', 1) - 1
+                  end = change.get('line_end', start + 1)
+                  replacement = change.get('replacement', '')
+
+                  # 변경 적용
+                  lines[start:end] = [replacement + '\n']
+                  applied_count += 1
+
+              with open(file_path, 'w') as f:
+                  f.writelines(lines)
+
+              print(f"Applied fixes to {file_path}")
+
+          print(f"Total fixes applied: {applied_count}")
+
+          # 결과 저장
+          with open(os.environ.get('GITHUB_OUTPUT', '/dev/null'), 'a') as f:
+              f.write(f"applied_count={applied_count}\n")
+          PYTHON_EOF
+
+      # =========================================================================
+      # 수정 검증 - 코드 삭제 감지
+      # =========================================================================
+      - name: Validate Fix (No Deletion Check)
+        id: validate-fix
+        if: steps.apply-fixes.outcome == 'success'
+        run: |
+          # git diff로 변경사항 분석
+          DIFF=$(git diff --stat)
+
+          # 삭제된 줄 수 계산
+          DELETIONS=$(git diff --numstat | awk '{ sum += $2 } END { print sum }')
+          ADDITIONS=$(git diff --numstat | awk '{ sum += $1 } END { print sum }')
+
+          echo "Additions: $ADDITIONS"
+          echo "Deletions: $DELETIONS"
+
+          # 삭제가 추가보다 많으면 거부
+          if [ "$DELETIONS" -gt "$ADDITIONS" ]; then
+            echo "❌ Fix rejected: More deletions than additions"
+            echo "This violates the no-deletion principle"
+            echo "valid=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # 금지 패턴 검사 (코드 품질)
+          if git diff | grep -E "@ts-ignore|@ts-nocheck|eslint-disable|\.skip\(|: any|as any"; then
+            echo "❌ Fix rejected: Contains forbidden code quality patterns"
+            echo "valid=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # 금지 패턴 검사 (에러 우회)
+          if git diff | grep -E "\|\| true|\|\| echo|\|\| exit 0|continue-on-error: true|fallback"; then
+            echo "❌ Fix rejected: Contains error bypass patterns"
+            echo "valid=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # 금지 패턴 검사 (인프라 우회)
+          if git diff | grep -E "chmod 777|--privileged|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+"; then
+            echo "❌ Fix rejected: Contains infrastructure bypass patterns"
+            echo "valid=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          echo "✅ Fix validation passed"
+          echo "valid=true" >> $GITHUB_OUTPUT
+
+      - name: Re-run Build Test
+        id: retest
+        if: steps.validate-fix.outputs.valid == 'true'
+        continue-on-error: true
+        run: |
+          npm ci
+          npm run typecheck 2>&1 || exit 1
+          npm run lint 2>&1 || exit 1
+          npm run build 2>&1 || exit 1
+          npm run test 2>&1 || exit 1
+          echo "retest_passed=true" >> $GITHUB_OUTPUT
+
+      - name: Commit Fix
+        if: steps.retest.outputs.retest_passed == 'true'
+        run: |
+          git add -A
+          git commit -m "fix: auto-fix build errors
+
+          Applied AI-assisted fixes for build errors.
+
+          Changes:
+          - Type definitions added/modified
+          - Missing imports added
+          - Logic bugs fixed
+
+          🤖 Generated by Self-Healing CI/CD
+          Co-Authored-By: Claude <noreply@anthropic.com>"
+
+          git push origin ${{ github.ref_name }}
+
+      - name: Create Fix Report
+        if: always()
+        run: |
+          echo "## Self-Healing CI/CD Report" > fix_report.md
+          echo "" >> fix_report.md
+          echo "### Build Status" >> fix_report.md
+          echo "- TypeCheck: ${{ needs.build.outputs.typecheck_status || 'N/A' }}" >> fix_report.md
+          echo "- Lint: ${{ needs.build.outputs.lint_status || 'N/A' }}" >> fix_report.md
+          echo "- Build: ${{ needs.build.outputs.build_status || 'N/A' }}" >> fix_report.md
+          echo "- Test: ${{ needs.build.outputs.test_status || 'N/A' }}" >> fix_report.md
+          echo "" >> fix_report.md
+          echo "### Auto-Fix Results" >> fix_report.md
+          echo "- AI Fix Generated: ${{ steps.ai-fix.outputs.has_fix || 'false' }}" >> fix_report.md
+          echo "- Fixes Applied: ${{ steps.apply-fixes.outputs.applied_count || '0' }}" >> fix_report.md
+          echo "- Validation Passed: ${{ steps.validate-fix.outputs.valid || 'false' }}" >> fix_report.md
+          echo "- Re-test Passed: ${{ steps.retest.outputs.retest_passed || 'false' }}" >> fix_report.md
+
+          cat fix_report.md
+
+  # ===========================================================================
+  # Job 3: Docker 이미지 빌드 및 푸시
+  # ===========================================================================
+  docker:
+    name: Build & Push Docker Image
+    needs: build
+    if: needs.build.outputs.should_auto_fix != 'true' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ===========================================================================
+  # Job 4: 서버 배포
+  # ===========================================================================
+  deploy:
+    name: Deploy to Server
+    needs: [build, docker]
+    if: needs.docker.result == 'success' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Deploy to Server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            # 서버에서 최신 이미지 pull 및 배포
+            cd /opt/codeb/projects/${{ github.event.repository.name }}
+
+            # 이미지 pull
+            podman pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+            # Rolling 배포
+            podman-compose pull
+            podman-compose up -d --remove-orphans
+
+            # 헬스체크
+            sleep 10
+            curl -f http://localhost:3000/health || exit 1
+
+            echo "✅ Deployment successful!"
+
+      - name: Notify Success
+        if: success()
+        run: |
+          echo "🚀 Deployment to production completed successfully!"
+
+      - name: Notify Failure
+        if: failure()
+        run: |
+          echo "❌ Deployment failed!"
+          # 여기에 Slack/Discord 알림 추가 가능
