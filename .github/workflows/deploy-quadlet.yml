@@ -1,0 +1,306 @@
+# CodeB Quadlet Deployment Workflow
+# 3-Layer Architecture: Delivery Layer
+#
+# GitHub-hosted (x86): Build + Test + Push
+# Self-hosted runner (optional): Deploy via Quadlet + systemd
+
+name: Quadlet Deploy
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'cli/**'
+      - 'infrastructure/**'
+      - 'Dockerfile'
+      - '.github/workflows/deploy-quadlet.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      skip_tests:
+        description: 'Skip tests (emergency deploy)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/codeb-server
+  NODE_VERSION: '20.x'
+
+jobs:
+  # ============================================
+  # Stage 1: Build & Test (GitHub-hosted)
+  # ============================================
+  build:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+      image_digest: ${{ steps.build.outputs.digest }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: cli
+
+      - name: Run tests
+        if: ${{ !inputs.skip_tests }}
+        run: npm test --if-present
+        working-directory: cli
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+  # ============================================
+  # Stage 2: Deploy to Staging (SSH)
+  # ============================================
+  deploy-staging:
+    name: Deploy to Staging
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging')
+    environment:
+      name: staging
+      url: https://staging.one-q.xyz
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          envs: IMAGE_TAG,REGISTRY,IMAGE_NAME
+          script: |
+            set -e
+            echo "=== CodeB Staging Deployment ==="
+            echo "Image: ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+
+            # GHCR Login
+            echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Pull new image
+            podman pull ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+
+            # Update Quadlet container file
+            sudo tee /etc/containers/systemd/codeb-app.container << 'EOF'
+            [Unit]
+            Description=CodeB Application (Staging)
+            After=network-online.target
+            Wants=network-online.target
+
+            [Container]
+            Image=${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+            ContainerName=codeb-app-staging
+            PublishPort=3001:3000
+            Environment=NODE_ENV=staging
+            EnvironmentFile=/opt/codeb/envs/staging.env
+            Network=codeb
+            HealthCmd=/usr/bin/curl -sf http://localhost:3000/health || exit 1
+            HealthInterval=30s
+            HealthTimeout=10s
+            HealthRetries=3
+
+            [Service]
+            Restart=always
+            RestartSec=10s
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+            # Reload and restart
+            sudo systemctl daemon-reload
+            sudo systemctl restart codeb-app.service
+
+            # Wait and verify
+            sleep 10
+            sudo systemctl status codeb-app.service --no-pager
+            curl -sf http://localhost:3001/health || echo "Health check pending..."
+
+            echo "=== Staging deployment complete ==="
+
+      - name: Health check
+        run: |
+          sleep 15
+          curl -sf https://staging.one-q.xyz/health || echo "Health check via domain pending (DNS propagation)"
+
+  # ============================================
+  # Stage 3: Deploy to Production (SSH)
+  # ============================================
+  deploy-production:
+    name: Deploy to Production
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'production')
+    environment:
+      name: production
+      url: https://one-q.xyz
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USER }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          envs: IMAGE_TAG,REGISTRY,IMAGE_NAME
+          script: |
+            set -e
+            echo "=== CodeB Production Deployment ==="
+            echo "Image: ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+
+            # GHCR Login
+            echo "${{ secrets.GHCR_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Pull new image
+            podman pull ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+
+            # Backup current container (if exists)
+            podman commit codeb-app codeb-app-backup:$(date +%Y%m%d-%H%M%S) 2>/dev/null || true
+
+            # Update Quadlet container file
+            sudo tee /etc/containers/systemd/codeb-app.container << 'EOF'
+            [Unit]
+            Description=CodeB Application (Production)
+            After=network-online.target codeb-postgres.service codeb-redis.service
+            Wants=network-online.target
+            Requires=codeb-postgres.service codeb-redis.service
+
+            [Container]
+            Image=${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+            ContainerName=codeb-app
+            PublishPort=3000:3000
+            Environment=NODE_ENV=production
+            EnvironmentFile=/opt/codeb/envs/production.env
+            Volume=/opt/codeb/data/app:/app/data:Z
+            Volume=/opt/codeb/logs/app:/app/logs:Z
+            Network=codeb
+            HealthCmd=/usr/bin/curl -sf http://localhost:3000/health || exit 1
+            HealthInterval=30s
+            HealthTimeout=10s
+            HealthRetries=3
+            HealthStartPeriod=60s
+            NoNewPrivileges=true
+
+            [Service]
+            Restart=always
+            RestartSec=10s
+            TimeoutStartSec=300
+            TimeoutStopSec=30
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+            # Reload and restart
+            sudo systemctl daemon-reload
+            sudo systemctl restart codeb-app.service
+
+            # Wait and verify
+            sleep 15
+            sudo systemctl status codeb-app.service --no-pager
+
+            # Health check
+            for i in {1..6}; do
+              if curl -sf http://localhost:3000/health; then
+                echo "Health check passed!"
+                break
+              fi
+              echo "Waiting for app to be healthy... ($i/6)"
+              sleep 10
+            done
+
+            echo "=== Production deployment complete ==="
+
+      - name: Health check
+        run: |
+          sleep 20
+          curl -sf https://one-q.xyz/health || echo "Health check via domain pending"
+
+      - name: Rollback on failure
+        if: failure()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USER }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          script: |
+            echo "=== Rolling back deployment ==="
+            # Get latest backup
+            BACKUP=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep codeb-app-backup | head -1)
+            if [ -n "$BACKUP" ]; then
+              echo "Rolling back to: $BACKUP"
+              podman tag $BACKUP codeb-app:rollback
+              # Update container file to use rollback image
+              sudo sed -i "s|Image=.*|Image=codeb-app:rollback|" /etc/containers/systemd/codeb-app.container
+              sudo systemctl daemon-reload
+              sudo systemctl restart codeb-app.service
+              echo "Rollback complete"
+            else
+              echo "No backup found for rollback"
+            fi

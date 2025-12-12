@@ -1,11 +1,14 @@
 /**
  * CodeB Deploy MCP - Deploy Tool
  * 실제 배포 실행 및 관리
+ *
+ * ⚠️ 모든 배포는 PortGuard 검증을 통과해야 함 (강제)
  */
 
 import { z } from 'zod';
 import { getSSHClient } from '../lib/ssh-client.js';
 import { portRegistry } from '../lib/port-registry.js';
+import { portGuard, findNextAvailablePort, type ValidationResult, type PortReservation } from '../lib/port-manifest.js';
 import type { DeploymentResult, DeployStrategy, Environment } from '../lib/types.js';
 
 // 기본 레지스트리 설정 (ghcr.io 사용)
@@ -843,6 +846,14 @@ ${domain} {
 
 /**
  * Deploy 도구 실행
+ *
+ * ⚠️ 핵심 규칙: 모든 배포는 PortGuard 검증을 통과해야 함
+ *
+ * 흐름:
+ * 1. 포트 결정 (config에서 로드 또는 자동 할당)
+ * 2. PortGuard.validateBeforeDeploy() → 실패 시 즉시 거부
+ * 3. 실제 배포 수행
+ * 4. 성공: portGuard.commitReservation() → 실패: portGuard.releaseReservation()
  */
 export async function executeDeploy(input: DeployInput): Promise<DeploymentResult> {
   const {
@@ -858,15 +869,175 @@ export async function executeDeploy(input: DeployInput): Promise<DeploymentResul
   } = input;
 
   const ssh = getSSHClient();
-  await ssh.connect();
-
   const startTime = Date.now();
   let steps: DeployStep[] = [];
+  let portValidation: ValidationResult | null = null;
 
   try {
+    await ssh.connect();
+
+    // ============================================================
+    // Step 0: 포트 결정 및 PortGuard 검증 (필수 - 스킵 불가)
+    // ============================================================
+    const step0Start = Date.now();
+    let targetPort: number = 0; // 초기값 설정 (catch 블록에서 사용 가능하도록)
+
+    try {
+      // config에서 포트 정보 로드
+      const configResult = await ssh.exec(
+        `cat /home/codeb/projects/${projectName}/deploy/config.json 2>/dev/null`
+      );
+
+      if (configResult.code === 0 && configResult.stdout.trim()) {
+        const config = JSON.parse(configResult.stdout);
+        targetPort = config.environments?.[environment]?.port;
+
+        if (!targetPort) {
+          // config에 포트가 없으면 자동 할당
+          targetPort = await findNextAvailablePort(environment as 'staging' | 'production' | 'preview');
+          console.error(`[Deploy] Auto-allocated port ${targetPort} for ${projectName}/${environment}`);
+        }
+      } else {
+        // config 파일 없음 - 자동 할당
+        targetPort = await findNextAvailablePort(environment as 'staging' | 'production' | 'preview');
+        console.error(`[Deploy] No config found, auto-allocated port ${targetPort}`);
+      }
+
+      // PortGuard 검증 (MCP 실패 대비 옵션 포함)
+      portValidation = await portGuard.validateBeforeDeploy(
+        projectName,
+        targetPort,
+        environment as 'staging' | 'production' | 'preview',
+        {
+          service: 'app',
+          skipServerCheck: false,
+          mcpAvailable: true, // MCP 사용 가능 상태 (실패 시 false로 재시도)
+        }
+      );
+
+      // 검증 실패 시 즉시 거부 (force 옵션도 무시)
+      if (!portValidation.valid) {
+        const errorMessages = portValidation.errors.map(e => `[${e.code}] ${e.message}`).join('; ');
+
+        steps.push({
+          name: 'port_validation',
+          status: 'failed',
+          duration: Date.now() - step0Start,
+          error: `Port validation failed: ${errorMessages}`,
+        });
+
+        return {
+          success: false,
+          environment,
+          version,
+          duration: Date.now() - startTime,
+          timestamp: new Date().toISOString(),
+          error: `⚠️ PORT GUARD REJECTED: ${errorMessages}`,
+          steps: steps.map(s => ({
+            name: s.name,
+            status: s.status,
+            duration: s.duration,
+            message: s.output || s.error,
+          })),
+        };
+      }
+
+      // 경고가 있으면 로그
+      if (portValidation.warnings.length > 0) {
+        console.error(`[Deploy] Warnings: ${portValidation.warnings.map(w => w.message).join('; ')}`);
+      }
+
+      steps.push({
+        name: 'port_validation',
+        status: 'success',
+        duration: Date.now() - step0Start,
+        output: `Port ${targetPort} validated and reserved (token: ${portValidation.reservation?.token.substring(0, 16)}...)`,
+      });
+
+    } catch (error) {
+      // PortGuard 자체 실패 - MCP 불가 시 SSH 폴백으로 재시도
+      console.error('[Deploy] PortGuard validation failed, attempting SSH fallback:', error);
+
+      try {
+        // targetPort가 아직 할당되지 않았으면 환경별 기본 포트 사용
+        if (targetPort === 0) {
+          const defaultPorts = { staging: 3000, production: 4000, preview: 5000 };
+          targetPort = defaultPorts[environment as keyof typeof defaultPorts] || 3000;
+          console.error(`[Deploy] Using default port ${targetPort} for ${environment}`);
+        }
+
+        // SSH 직접 검증 (폴백)
+        const sshPortCheck = await ssh.exec(
+          `ss -tlnp | grep ":${targetPort} " && echo "IN_USE" || echo "AVAILABLE"`
+        );
+
+        if (sshPortCheck.stdout.includes('IN_USE')) {
+          steps.push({
+            name: 'port_validation',
+            status: 'failed',
+            duration: Date.now() - step0Start,
+            error: `Port ${targetPort} is in use (SSH fallback check)`,
+          });
+
+          return {
+            success: false,
+            environment,
+            version,
+            duration: Date.now() - startTime,
+            timestamp: new Date().toISOString(),
+            error: `⚠️ PORT CONFLICT: Port ${targetPort} is already in use`,
+            steps: steps.map(s => ({
+              name: s.name,
+              status: s.status,
+              duration: s.duration,
+              message: s.output || s.error,
+            })),
+          };
+        }
+
+        steps.push({
+          name: 'port_validation',
+          status: 'success',
+          duration: Date.now() - step0Start,
+          output: `Port ${targetPort} validated via SSH fallback (MCP unavailable)`,
+        });
+
+      } catch (sshError) {
+        // SSH 폴백도 실패 - 배포 거부
+        steps.push({
+          name: 'port_validation',
+          status: 'failed',
+          duration: Date.now() - step0Start,
+          error: `Port validation failed (both MCP and SSH): ${error instanceof Error ? error.message : String(error)}`,
+        });
+
+        return {
+          success: false,
+          environment,
+          version,
+          duration: Date.now() - startTime,
+          timestamp: new Date().toISOString(),
+          error: '⚠️ PORT VALIDATION UNAVAILABLE: Cannot verify port availability',
+          steps: steps.map(s => ({
+            name: s.name,
+            status: s.status,
+            duration: s.duration,
+            message: s.output || s.error,
+          })),
+        };
+      }
+    }
+
+    // ============================================================
+    // 실제 배포 수행
+    // ============================================================
+
     // Preview 환경은 별도 처리
     if (environment === 'preview') {
       if (!prNumber) {
+        if (portValidation?.reservation) {
+          portGuard.releaseReservation(portValidation.reservation.token);
+        }
         return {
           success: false,
           environment,
@@ -877,26 +1048,47 @@ export async function executeDeploy(input: DeployInput): Promise<DeploymentResul
         };
       }
 
-      steps = await executePreviewDeploy(projectName, version, prNumber);
+      steps = [...steps, ...(await executePreviewDeploy(projectName, version, prNumber))];
     } else {
       // 전략별 배포 실행
+      let deploySteps: DeployStep[];
       switch (strategy) {
         case 'rolling':
-          steps = await executeRollingDeploy(projectName, environment, version, skipHealthcheck);
+          deploySteps = await executeRollingDeploy(projectName, environment, version, skipHealthcheck);
           break;
         case 'blue-green':
-          steps = await executeBlueGreenDeploy(projectName, environment, version, skipHealthcheck);
+          deploySteps = await executeBlueGreenDeploy(projectName, environment, version, skipHealthcheck);
           break;
         case 'canary':
-          steps = await executeCanaryDeploy(projectName, environment, version, canaryWeight, skipHealthcheck);
+          deploySteps = await executeCanaryDeploy(projectName, environment, version, canaryWeight, skipHealthcheck);
           break;
         default:
-          steps = await executeRollingDeploy(projectName, environment, version, skipHealthcheck);
+          deploySteps = await executeRollingDeploy(projectName, environment, version, skipHealthcheck);
       }
+      steps = [...steps, ...deploySteps];
     }
 
     const hasFailure = steps.some(s => s.status === 'failed');
     const duration = Date.now() - startTime;
+
+    // ============================================================
+    // 배포 결과에 따른 PortGuard 처리
+    // ============================================================
+    if (portValidation?.reservation) {
+      if (hasFailure) {
+        // 배포 실패 - 예약 해제
+        portGuard.releaseReservation(portValidation.reservation.token);
+        console.error(`[Deploy] Released port reservation due to deployment failure`);
+      } else {
+        // 배포 성공 - 예약 확정 (매니페스트에 영구 등록)
+        const committed = await portGuard.commitReservation(portValidation.reservation.token);
+        if (committed) {
+          console.error(`[Deploy] Port reservation committed to manifest`);
+        } else {
+          console.error(`[Deploy] Warning: Failed to commit port reservation to manifest`);
+        }
+      }
+    }
 
     const result: DeploymentResult = {
       success: !hasFailure,
@@ -919,6 +1111,26 @@ export async function executeDeploy(input: DeployInput): Promise<DeploymentResul
 
     return result;
 
+  } catch (error) {
+    // 전체 실패 시 예약 해제
+    if (portValidation?.reservation) {
+      portGuard.releaseReservation(portValidation.reservation.token);
+    }
+
+    return {
+      success: false,
+      environment,
+      version,
+      duration: Date.now() - startTime,
+      timestamp: new Date().toISOString(),
+      error: `Deployment error: ${error instanceof Error ? error.message : String(error)}`,
+      steps: steps.map(s => ({
+        name: s.name,
+        status: s.status,
+        duration: s.duration,
+        message: s.output || s.error,
+      })),
+    };
   } finally {
     ssh.disconnect();
   }

@@ -139,7 +139,7 @@ program
 program
   .command('workflow')
   .description('Generate Quadlet and GitHub Actions CI/CD workflows with server infrastructure provisioning')
-  .argument('<action>', 'Action (init|quadlet|github-actions|dockerfile|update|scan|migrate|sync|add-service|add-resource|fix-network)')
+  .argument('<action>', 'Action (init|quadlet|github-actions|dockerfile|update|scan|migrate|sync|add-service|add-resource|fix-network|port-validate|port-drift)')
   .argument('[target]', 'Project name or target')
   .option('-n, --name <name>', 'Project name')
   .option('-t, --type <type>', 'Project type (nextjs|remix|nodejs|static)', 'nextjs')

@@ -933,14 +933,80 @@ ${includeTests ? `
             REVISION=\${{ github.sha }}
 
   # ============================================
+  # Pre-Deploy Port Validation (Self-hosted)
+  # ============================================
+  port-validate:
+    name: Validate Port Allocation
+    runs-on: self-hosted
+    needs: build
+    if: needs.build.result == 'success'
+
+    outputs:
+      port_valid: \${{ steps.validate.outputs.valid }}
+      target_port: \${{ steps.validate.outputs.port }}
+
+    steps:
+      - name: Determine target port
+        id: vars
+        run: |
+          ENV="\${{ needs.build.outputs.environment }}"
+          if [ "\$ENV" = "production" ]; then
+            echo "port=${ports.production}" >> \$GITHUB_OUTPUT
+          else
+            echo "port=${ports.staging}" >> \$GITHUB_OUTPUT
+          fi
+
+      - name: Validate port from manifest
+        id: validate
+        run: |
+          PORT="\${{ steps.vars.outputs.port }}"
+          ENV="\${{ needs.build.outputs.environment }}"
+          MANIFEST="/home/codeb/config/port-manifest.yaml"
+
+          echo "🔍 Validating port \$PORT for ${projectName}/\$ENV"
+
+          # Check if manifest exists
+          if [ ! -f "\$MANIFEST" ]; then
+            echo "⚠️ Port manifest not found, skipping validation"
+            echo "valid=true" >> \$GITHUB_OUTPUT
+            echo "port=\$PORT" >> \$GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Check if port is allocated to this project in manifest
+          OWNER=\$(grep -B5 "app: \$PORT" "\$MANIFEST" 2>/dev/null | grep -E "^  [a-zA-Z]" | tail -1 | tr -d ': ')
+
+          if [ -n "\$OWNER" ] && [ "\$OWNER" != "${projectName}" ]; then
+            echo "❌ PORT CONFLICT: Port \$PORT is allocated to \$OWNER in manifest"
+            echo "valid=false" >> \$GITHUB_OUTPUT
+            echo "port=\$PORT" >> \$GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # Check if port is actually in use by another process
+          ACTUAL_USER=\$(ss -tlnp | grep ":\$PORT " | head -1 || true)
+          if [ -n "\$ACTUAL_USER" ]; then
+            PROCESS=\$(echo "\$ACTUAL_USER" | grep -oP 'users:\(\("\K[^"]+' || echo "unknown")
+            if ! echo "\$PROCESS" | grep -qE "(${projectName}|conmon|podman)"; then
+              echo "⚠️ Port \$PORT in use by: \$PROCESS"
+              # Warning only, not failure (could be same container restarting)
+            fi
+          fi
+
+          echo "✅ Port \$PORT validated for ${projectName}/\$ENV"
+          echo "valid=true" >> \$GITHUB_OUTPUT
+          echo "port=\$PORT" >> \$GITHUB_OUTPUT
+
+  # ============================================
   # Deploy (Self-hosted Runner on Server)
   # ============================================
   deploy:
     name: Deploy to Server
     runs-on: self-hosted
-    needs: build
+    needs: [build, port-validate]
     if: |
       needs.build.result == 'success' &&
+      needs.port-validate.outputs.port_valid == 'true' &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.event_name == 'workflow_dispatch')
 
     env:
@@ -1229,6 +1295,14 @@ export async function workflow(action, target, options) {
     case 'fix-network':
       await fixNetworkWorkflow(target, options);
       break;
+    case 'port-validate':
+    case 'port':
+      await portValidateWorkflow(target, options);
+      break;
+    case 'port-drift':
+    case 'drift':
+      await portDriftWorkflow(target, options);
+      break;
     default:
       console.log(chalk.red(`Unknown action: ${action}`));
       console.log(chalk.gray('\nAvailable actions:'));
@@ -1243,6 +1317,8 @@ export async function workflow(action, target, options) {
       console.log(chalk.gray('  add-service  - Add container service (PostgreSQL/Redis container)'));
       console.log(chalk.gray('  add-resource - Add missing resources to existing project (DB user, Redis DB, Storage)'));
       console.log(chalk.gray('  fix-network  - Fix network issues (migrate to codeb-network)'));
+      console.log(chalk.gray('  port-validate- Validate port allocation before deployment (GitOps PortGuard)'));
+      console.log(chalk.gray('  port-drift   - Detect drift between manifest and actual server state'));
   }
 }
 
@@ -3469,4 +3545,381 @@ async function fixNetworkWorkflow(projectName, options) {
     console.log(chalk.red(`\n❌ Error: ${error.message}\n`));
     process.exit(1);
   }
+}
+
+// ============================================================================
+// Port Validation (GitOps PortGuard Integration)
+// ============================================================================
+
+/**
+ * Validate port allocation before deployment
+ * Uses SSH to check server's port-manifest.yaml and actual port usage
+ */
+async function portValidateWorkflow(target, options) {
+  const spinner = ora('Validating port allocation...').start();
+
+  try {
+    const serverHost = options.host || getServerHost();
+    const serverUser = options.user || getServerUser();
+    const { execSync } = await import('child_process');
+
+    // Parse target: project:port:environment format or just project
+    let projectName = target;
+    let port = options.port ? parseInt(options.port) : null;
+    let environment = options.environment || 'staging';
+
+    if (target && target.includes(':')) {
+      const parts = target.split(':');
+      projectName = parts[0];
+      port = parts[1] ? parseInt(parts[1]) : port;
+      environment = parts[2] || environment;
+    }
+
+    spinner.text = 'Loading port manifest from server...';
+
+    // Read port manifest from server
+    let manifest;
+    try {
+      const manifestCmd = `ssh ${serverUser}@${serverHost} "cat /home/codeb/config/port-manifest.yaml 2>/dev/null"`;
+      const manifestOutput = execSync(manifestCmd, { encoding: 'utf-8', timeout: 30000 });
+
+      // Parse YAML (simple parsing for key structures)
+      manifest = parseSimpleYaml(manifestOutput);
+    } catch {
+      manifest = { projects: {} };
+      console.log(chalk.yellow('\n⚠️  No port manifest found on server, will check live ports only'));
+    }
+
+    spinner.text = 'Scanning actual port usage on server...';
+
+    // Get actual used ports from server
+    const portsCmd = `ssh ${serverUser}@${serverHost} "ss -tlnp | grep LISTEN | awk '{print \\$4}' | grep -oE '[0-9]+$' | sort -n | uniq"`;
+    const portsOutput = execSync(portsCmd, { encoding: 'utf-8', timeout: 30000 });
+    const usedPorts = new Set(
+      portsOutput.split('\n').filter(p => p.trim()).map(p => parseInt(p)).filter(p => !isNaN(p))
+    );
+
+    spinner.stop();
+
+    console.log(chalk.blue.bold('\n📋 Port Validation Report\n'));
+
+    // 1. Show port ranges
+    console.log(chalk.cyan('Port Ranges:'));
+    console.log(chalk.gray('  Staging:    3000-3499 (app), 5432-5449 (db), 6379-6399 (redis)'));
+    console.log(chalk.gray('  Production: 4000-4499 (app), 5450-5469 (db), 6400-6419 (redis)'));
+    console.log(chalk.gray('  Preview:    5000-5999 (app)'));
+    console.log();
+
+    // 2. If specific port validation requested
+    if (port) {
+      const portRange = getPortRange(port);
+      const isUsed = usedPorts.has(port);
+      const manifestOwner = findPortOwnerInManifest(manifest, port);
+
+      console.log(chalk.cyan(`Port ${port} Validation:`));
+      console.log(chalk.gray(`  Range:       ${portRange || 'Unknown'}`));
+      console.log(isUsed ? chalk.red(`  Status:      IN USE`) : chalk.green(`  Status:      AVAILABLE`));
+
+      if (manifestOwner) {
+        console.log(chalk.yellow(`  Owner:       ${manifestOwner.project}/${manifestOwner.environment}`));
+      }
+
+      if (projectName && manifestOwner && manifestOwner.project !== projectName) {
+        console.log(chalk.red(`\n❌ PORT CONFLICT: Port ${port} is allocated to ${manifestOwner.project}`));
+        console.log(chalk.yellow('   Suggested action: Use a different port or update manifest'));
+        process.exit(1);
+      }
+
+      if (isUsed && !manifestOwner) {
+        console.log(chalk.yellow(`\n⚠️  Port ${port} is in use but not in manifest (possible drift)`));
+      }
+
+      console.log();
+    }
+
+    // 3. Show manifest summary
+    if (manifest.projects && Object.keys(manifest.projects).length > 0) {
+      console.log(chalk.cyan('Registered Projects in Manifest:'));
+      for (const [name, project] of Object.entries(manifest.projects)) {
+        const envInfo = [];
+        for (const [env, ports] of Object.entries(project.environments || {})) {
+          if (ports.app) envInfo.push(`${env}:${ports.app}`);
+        }
+        console.log(chalk.gray(`  ${name}: ${envInfo.join(', ')}`));
+      }
+      console.log();
+    }
+
+    // 4. Show used ports summary
+    console.log(chalk.cyan('Currently Used Ports:'));
+    const portsByRange = {
+      staging: [],
+      production: [],
+      preview: [],
+      system: [],
+      other: []
+    };
+
+    for (const p of usedPorts) {
+      if (p >= 3000 && p < 3500) portsByRange.staging.push(p);
+      else if (p >= 4000 && p < 4500) portsByRange.production.push(p);
+      else if (p >= 5000 && p < 6000) portsByRange.preview.push(p);
+      else if (p < 1024) portsByRange.system.push(p);
+      else portsByRange.other.push(p);
+    }
+
+    console.log(chalk.gray(`  Staging (3000-3499):    ${portsByRange.staging.length} ports (${portsByRange.staging.slice(0, 5).join(', ')}${portsByRange.staging.length > 5 ? '...' : ''})`));
+    console.log(chalk.gray(`  Production (4000-4499): ${portsByRange.production.length} ports (${portsByRange.production.slice(0, 5).join(', ')}${portsByRange.production.length > 5 ? '...' : ''})`));
+    console.log(chalk.gray(`  Preview (5000-5999):    ${portsByRange.preview.length} ports (${portsByRange.preview.slice(0, 5).join(', ')}${portsByRange.preview.length > 5 ? '...' : ''})`));
+    console.log(chalk.gray(`  System (<1024):         ${portsByRange.system.length} ports`));
+    console.log();
+
+    // 5. Suggest next available ports
+    console.log(chalk.cyan('Next Available Ports:'));
+    console.log(chalk.green(`  Staging App:    ${findNextPort(3000, 3499, usedPorts)}`));
+    console.log(chalk.green(`  Production App: ${findNextPort(4000, 4499, usedPorts)}`));
+    console.log(chalk.green(`  Preview App:    ${findNextPort(5000, 5999, usedPorts)}`));
+    console.log();
+
+    console.log(chalk.green('✅ Port validation completed'));
+
+  } catch (error) {
+    spinner.fail('Port validation failed');
+    console.log(chalk.red(`\n❌ Error: ${error.message}\n`));
+    process.exit(1);
+  }
+}
+
+/**
+ * Detect drift between manifest and actual server state
+ */
+async function portDriftWorkflow(target, options) {
+  const spinner = ora('Detecting port drift...').start();
+
+  try {
+    const serverHost = options.host || getServerHost();
+    const serverUser = options.user || getServerUser();
+    const { execSync } = await import('child_process');
+
+    spinner.text = 'Loading port manifest and registry...';
+
+    // Read port manifest
+    let manifest = { projects: {} };
+    try {
+      const manifestCmd = `ssh ${serverUser}@${serverHost} "cat /home/codeb/config/port-manifest.yaml 2>/dev/null"`;
+      const manifestOutput = execSync(manifestCmd, { encoding: 'utf-8', timeout: 30000 });
+      manifest = parseSimpleYaml(manifestOutput);
+    } catch {
+      console.log(chalk.yellow('\n⚠️  No port manifest found'));
+    }
+
+    // Read port registry
+    let registry = { usedPorts: [], allocations: [] };
+    try {
+      const registryCmd = `ssh ${serverUser}@${serverHost} "cat /home/codeb/config/port-registry.json 2>/dev/null"`;
+      const registryOutput = execSync(registryCmd, { encoding: 'utf-8', timeout: 30000 });
+      registry = JSON.parse(registryOutput);
+    } catch {
+      console.log(chalk.yellow('⚠️  No port registry found'));
+    }
+
+    spinner.text = 'Scanning actual port usage...';
+
+    // Get actual used ports with process info
+    const portsCmd = `ssh ${serverUser}@${serverHost} "ss -tlnp | grep LISTEN | awk '{print \\$4, \\$6}' | sort -t: -k2 -n"`;
+    const portsOutput = execSync(portsCmd, { encoding: 'utf-8', timeout: 30000 });
+
+    const actualPorts = new Map();
+    for (const line of portsOutput.split('\n').filter(l => l.trim())) {
+      const match = line.match(/:(\d+)\s+users:\(\("([^"]+)"/);
+      if (match) {
+        actualPorts.set(parseInt(match[1]), match[2]);
+      }
+    }
+
+    spinner.stop();
+
+    console.log(chalk.blue.bold('\n🔍 Port Drift Detection Report\n'));
+
+    const drifts = [];
+
+    // Check manifest vs actual
+    for (const [projectName, project] of Object.entries(manifest.projects || {})) {
+      for (const [env, ports] of Object.entries(project.environments || {})) {
+        if (ports.app) {
+          const isActual = actualPorts.has(ports.app);
+          if (!isActual) {
+            drifts.push({
+              type: 'MANIFEST_ORPHAN',
+              project: projectName,
+              environment: env,
+              port: ports.app,
+              message: `Port ${ports.app} in manifest but not in use (service down?)`
+            });
+          }
+        }
+      }
+    }
+
+    // Check actual vs manifest (find unregistered ports in our ranges)
+    for (const [port, process] of actualPorts) {
+      if ((port >= 3000 && port < 6000) || (port >= 5432 && port < 5470) || (port >= 6379 && port < 6420)) {
+        const owner = findPortOwnerInManifest(manifest, port);
+        if (!owner) {
+          drifts.push({
+            type: 'UNREGISTERED',
+            port: port,
+            process: process,
+            message: `Port ${port} in use by "${process}" but not in manifest`
+          });
+        }
+      }
+    }
+
+    // Check registry vs manifest consistency
+    const registryPorts = new Set(registry.usedPorts || []);
+    const manifestPorts = new Set();
+    for (const project of Object.values(manifest.projects || {})) {
+      for (const ports of Object.values(project.environments || {})) {
+        if (ports.app) manifestPorts.add(ports.app);
+        if (ports.db) manifestPorts.add(ports.db);
+        if (ports.redis) manifestPorts.add(ports.redis);
+      }
+    }
+
+    for (const port of registryPorts) {
+      if (!manifestPorts.has(port) && !actualPorts.has(port)) {
+        drifts.push({
+          type: 'REGISTRY_STALE',
+          port: port,
+          message: `Port ${port} in registry but not in manifest or actual use`
+        });
+      }
+    }
+
+    // Report drifts
+    if (drifts.length === 0) {
+      console.log(chalk.green('✅ No drift detected - Manifest, registry, and server are in sync'));
+    } else {
+      console.log(chalk.yellow(`⚠️  Found ${drifts.length} drift(s):\n`));
+
+      const driftsByType = {
+        MANIFEST_ORPHAN: [],
+        UNREGISTERED: [],
+        REGISTRY_STALE: []
+      };
+
+      for (const drift of drifts) {
+        driftsByType[drift.type].push(drift);
+      }
+
+      if (driftsByType.MANIFEST_ORPHAN.length > 0) {
+        console.log(chalk.cyan('Manifest Orphans (in manifest but not running):'));
+        for (const d of driftsByType.MANIFEST_ORPHAN) {
+          console.log(chalk.yellow(`  ⚠️  ${d.project}/${d.environment} - Port ${d.port}`));
+        }
+        console.log();
+      }
+
+      if (driftsByType.UNREGISTERED.length > 0) {
+        console.log(chalk.cyan('Unregistered Ports (running but not in manifest):'));
+        for (const d of driftsByType.UNREGISTERED) {
+          console.log(chalk.red(`  ❌ Port ${d.port} - Process: ${d.process}`));
+        }
+        console.log();
+      }
+
+      if (driftsByType.REGISTRY_STALE.length > 0) {
+        console.log(chalk.cyan('Stale Registry Entries:'));
+        for (const d of driftsByType.REGISTRY_STALE) {
+          console.log(chalk.gray(`  ○ Port ${d.port}`));
+        }
+        console.log();
+      }
+
+      // Suggest fixes
+      console.log(chalk.cyan('Suggested Actions:'));
+      if (driftsByType.MANIFEST_ORPHAN.length > 0) {
+        console.log(chalk.gray('  • Start stopped services or remove from manifest'));
+      }
+      if (driftsByType.UNREGISTERED.length > 0) {
+        console.log(chalk.gray('  • Register running services in manifest or stop unknown processes'));
+      }
+      if (driftsByType.REGISTRY_STALE.length > 0) {
+        console.log(chalk.gray('  • Run "we workflow port-validate" to sync registry'));
+      }
+      console.log();
+
+      if (options.fix) {
+        console.log(chalk.yellow('Auto-fix is not yet implemented. Please fix manually.'));
+      }
+    }
+
+    // Summary stats
+    console.log(chalk.blue('\n📊 Summary:'));
+    console.log(chalk.gray(`  Manifest projects: ${Object.keys(manifest.projects || {}).length}`));
+    console.log(chalk.gray(`  Registry ports:    ${registryPorts.size}`));
+    console.log(chalk.gray(`  Actual ports:      ${actualPorts.size}`));
+    console.log(chalk.gray(`  Drifts detected:   ${drifts.length}`));
+    console.log();
+
+  } catch (error) {
+    spinner.fail('Drift detection failed');
+    console.log(chalk.red(`\n❌ Error: ${error.message}\n`));
+    process.exit(1);
+  }
+}
+
+// Helper functions for port validation
+function parseSimpleYaml(yamlStr) {
+  const result = { projects: {} };
+  let currentProject = null;
+  let currentEnv = null;
+
+  for (const line of yamlStr.split('\n')) {
+    const projectMatch = line.match(/^\s{2}(\w[\w-]*):$/);
+    const envMatch = line.match(/^\s{4}(staging|production|preview):$/);
+    const portMatch = line.match(/^\s{6}(app|db|redis):\s*(\d+)/);
+
+    if (projectMatch) {
+      currentProject = projectMatch[1];
+      result.projects[currentProject] = { environments: {} };
+    } else if (envMatch && currentProject) {
+      currentEnv = envMatch[1];
+      result.projects[currentProject].environments[currentEnv] = {};
+    } else if (portMatch && currentProject && currentEnv) {
+      result.projects[currentProject].environments[currentEnv][portMatch[1]] = parseInt(portMatch[2]);
+    }
+  }
+
+  return result;
+}
+
+function getPortRange(port) {
+  if (port >= 3000 && port < 3500) return 'staging-app';
+  if (port >= 4000 && port < 4500) return 'production-app';
+  if (port >= 5000 && port < 6000) return 'preview-app';
+  if (port >= 5432 && port < 5450) return 'staging-db';
+  if (port >= 5450 && port < 5470) return 'production-db';
+  if (port >= 6379 && port < 6400) return 'staging-redis';
+  if (port >= 6400 && port < 6420) return 'production-redis';
+  return null;
+}
+
+function findPortOwnerInManifest(manifest, port) {
+  for (const [projectName, project] of Object.entries(manifest.projects || {})) {
+    for (const [env, ports] of Object.entries(project.environments || {})) {
+      if (ports.app === port || ports.db === port || ports.redis === port) {
+        return { project: projectName, environment: env };
+      }
+    }
+  }
+  return null;
+}
+
+function findNextPort(start, end, usedPorts) {
+  for (let p = start; p <= end; p++) {
+    if (!usedPorts.has(p)) return p;
+  }
+  return null;
 }

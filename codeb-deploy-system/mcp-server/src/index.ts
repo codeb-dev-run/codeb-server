@@ -86,6 +86,16 @@ import {
   syncPortRegistryWithServer,
 } from './lib/port-registry.js';
 
+// Port Manifest (GitOps)
+import {
+  portGuard,
+  portGitOps,
+  loadManifest,
+  saveManifest,
+  findNextAvailablePort,
+  releasePort,
+} from './lib/port-manifest.js';
+
 // Project Registry
 import {
   projectRegistry,
@@ -393,6 +403,82 @@ const tools = [
           description: '동기화 결과를 서버에 저장할지 여부 (기본값: true)',
         },
       },
+    },
+  },
+  // ============================================================================
+  // Port Manifest (GitOps) Tools - 강제 포트 관리 시스템
+  // ============================================================================
+  {
+    name: 'port_validate',
+    description: '⚠️ 필수! 배포 전 포트 가용성을 검증합니다. 충돌 감지, 범위 검사, 서버 상태 확인을 수행합니다. 검증 실패 시 배포가 차단됩니다.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectName: { type: 'string', description: '프로젝트 이름' },
+        port: { type: 'number', description: '검증할 포트 번호' },
+        environment: {
+          type: 'string',
+          enum: ['staging', 'production', 'preview'],
+          description: '배포 환경',
+        },
+        service: {
+          type: 'string',
+          enum: ['app', 'db', 'redis'],
+          description: '서비스 유형 (기본값: app)',
+        },
+        skipServerCheck: {
+          type: 'boolean',
+          description: '서버 실제 상태 검사 스킵 (권장하지 않음)',
+        },
+      },
+      required: ['projectName', 'port', 'environment'],
+    },
+  },
+  {
+    name: 'port_drift',
+    description: '포트 매니페스트와 서버 실제 상태 간의 드리프트(불일치)를 감지합니다. GitOps 방식으로 포트 상태를 관리합니다.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        autoFix: {
+          type: 'string',
+          enum: ['manifest', 'server', 'none'],
+          description: '자동 수정 방식 (manifest: 매니페스트 업데이트, server: 서버 수정, none: 감지만)',
+        },
+        dryRun: {
+          type: 'boolean',
+          description: '실제 수정 없이 예상 결과만 확인',
+        },
+      },
+    },
+  },
+  {
+    name: 'port_manifest',
+    description: '포트 매니페스트를 조회하거나 관리합니다. Single Source of Truth로 모든 포트 할당을 추적합니다.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['get', 'find-available', 'release'],
+          description: 'get: 현재 매니페스트 조회, find-available: 사용 가능한 포트 찾기, release: 포트 해제',
+        },
+        environment: {
+          type: 'string',
+          enum: ['staging', 'production', 'preview'],
+          description: '환경 (find-available, release 시 필수)',
+        },
+        service: {
+          type: 'string',
+          enum: ['app', 'db', 'redis'],
+          description: '서비스 유형 (find-available 시 사용)',
+        },
+        port: {
+          type: 'number',
+          description: '포트 번호 (release 시 필수)',
+        },
+      },
+      required: ['action'],
     },
   },
   {
@@ -1144,6 +1230,137 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'sync_port_registry':
         result = await syncPortRegistryWithServer();
         break;
+
+      // ================================================================
+      // Port Manifest (GitOps) - 강제 포트 관리 시스템
+      // ================================================================
+      case 'port_validate': {
+        const validateArgs = args as {
+          projectName: string;
+          port: number;
+          environment: 'staging' | 'production' | 'preview';
+          service?: 'app' | 'db' | 'redis';
+          skipServerCheck?: boolean;
+        };
+
+        const validation = await portGuard.validateBeforeDeploy(
+          validateArgs.projectName,
+          validateArgs.port,
+          validateArgs.environment,
+          {
+            service: validateArgs.service || 'app',
+            skipServerCheck: validateArgs.skipServerCheck,
+          }
+        );
+
+        result = {
+          valid: validation.valid,
+          port: validateArgs.port,
+          project: validateArgs.projectName,
+          environment: validateArgs.environment,
+          errors: validation.errors,
+          warnings: validation.warnings,
+          reservation: validation.reservation ? {
+            token: validation.reservation.token,
+            expiresAt: validation.reservation.expiresAt,
+          } : null,
+          message: validation.valid
+            ? `✅ Port ${validateArgs.port} validated for ${validateArgs.projectName}/${validateArgs.environment}`
+            : `❌ Port ${validateArgs.port} validation FAILED: ${validation.errors.map(e => e.message).join('; ')}`,
+        };
+        break;
+      }
+
+      case 'port_drift': {
+        const driftArgs = args as {
+          autoFix?: 'manifest' | 'server' | 'none';
+          dryRun?: boolean;
+        };
+
+        const driftReport = await portGitOps.detectDrift();
+
+        if (driftArgs.autoFix && driftArgs.autoFix !== 'none') {
+          const reconcileResult = await portGitOps.reconcile({
+            dryRun: driftArgs.dryRun,
+            autoFix: driftArgs.autoFix,
+          });
+
+          result = {
+            ...driftReport,
+            reconciliation: reconcileResult,
+            message: driftReport.hasDrift
+              ? `🔍 Found ${driftReport.drifts.length} drift(s). ${reconcileResult.actions.length} actions ${driftArgs.dryRun ? 'would be' : 'were'} taken.`
+              : '✅ No drift detected. Manifest and server are in sync.',
+          };
+        } else {
+          result = {
+            ...driftReport,
+            message: driftReport.hasDrift
+              ? `🔍 Found ${driftReport.drifts.length} drift(s). Use autoFix='manifest' or autoFix='server' to reconcile.`
+              : '✅ No drift detected. Manifest and server are in sync.',
+          };
+        }
+        break;
+      }
+
+      case 'port_manifest': {
+        const manifestArgs = args as {
+          action: 'get' | 'find-available' | 'release';
+          environment?: 'staging' | 'production' | 'preview';
+          service?: 'app' | 'db' | 'redis';
+          port?: number;
+        };
+
+        switch (manifestArgs.action) {
+          case 'get':
+            const manifest = await loadManifest(true);
+            result = {
+              manifest,
+              summary: {
+                staging: Object.keys(manifest.ports.staging).length,
+                production: Object.keys(manifest.ports.production).length,
+                preview: Object.keys(manifest.ports.preview).length,
+              },
+              message: '📋 Current port manifest loaded',
+            };
+            break;
+
+          case 'find-available':
+            if (!manifestArgs.environment) {
+              throw new Error('environment is required for find-available action');
+            }
+            const availablePort = await findNextAvailablePort(
+              manifestArgs.environment,
+              manifestArgs.service || 'app'
+            );
+            result = {
+              port: availablePort,
+              environment: manifestArgs.environment,
+              service: manifestArgs.service || 'app',
+              message: `✅ Next available ${manifestArgs.service || 'app'} port for ${manifestArgs.environment}: ${availablePort}`,
+            };
+            break;
+
+          case 'release':
+            if (!manifestArgs.environment || !manifestArgs.port) {
+              throw new Error('environment and port are required for release action');
+            }
+            const released = await releasePort(manifestArgs.port, manifestArgs.environment);
+            result = {
+              released,
+              port: manifestArgs.port,
+              environment: manifestArgs.environment,
+              message: released
+                ? `✅ Port ${manifestArgs.port} released in ${manifestArgs.environment}`
+                : `⚠️ Port ${manifestArgs.port} not found in ${manifestArgs.environment} manifest`,
+            };
+            break;
+
+          default:
+            throw new Error(`Unknown port_manifest action: ${manifestArgs.action}`);
+        }
+        break;
+      }
 
       case 'setup_domain':
         result = await setupDomain(args as any);
