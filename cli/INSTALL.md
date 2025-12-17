@@ -1,15 +1,22 @@
 # we-cli 설치 가이드
 
-## 자동 설치 (npm install)
-
-npm install 한 번으로 모든 것이 자동 설치됩니다:
+## 원라인 설치 (권장)
 
 ```bash
-# GitHub에서 직접 설치 (npm 계정 불필요!)
-npm install -g github:codeblabdev-max/codeb-server
+curl -fsSL https://raw.githubusercontent.com/codeblabdev-max/codeb-server/main/install.sh | bash
+```
 
-# 또는 전체 URL로
-npm install -g git+https://github.com/codeblabdev-max/codeb-server.git
+## 수동 설치
+
+```bash
+# 1. 패키지 다운로드
+npm pack github:codeblabdev-max/codeb-server
+
+# 2. 전역 설치
+npm install -g we-cli-*.tgz
+
+# 3. 정리
+rm we-cli-*.tgz
 ```
 
 ## 자동으로 설치되는 항목
@@ -84,7 +91,7 @@ we --version
 
 ```bash
 # 최신 버전 재설치
-npm install -g github:codeblabdev-max/codeb-server
+curl -fsSL https://raw.githubusercontent.com/codeblabdev-max/codeb-server/main/install.sh | bash
 ```
 
 ## 삭제
