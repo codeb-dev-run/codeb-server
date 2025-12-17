@@ -1,9 +1,13 @@
 {
   "name": "codeb-unified-server",
   "version": "3.6.0",
-  "description": "CodeB Unified API Server - Wave 3 Production Ready",
+  "description": "CodeB Unified API Server - Wave 3 Production Ready with we-cli",
   "main": "codeb-unified-server.js",
+  "bin": {
+    "we": "./cli/bin/we.js"
+  },
   "scripts": {
+    "postinstall": "node cli/scripts/install-commands.js",
     "start": "node codeb-unified-server.js",
     "dev": "nodemon codeb-unified-server.js",
     "test": "jest --coverage",
@@ -40,23 +44,32 @@
   "author": "CodeB Team",
   "license": "MIT",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.0",
+    "axios": "^1.6.2",
     "bcrypt": "^5.1.1",
     "body-parser": "^1.20.2",
+    "chalk": "^5.3.0",
+    "cli-progress": "^3.12.0",
+    "commander": "^11.1.0",
     "compression": "^1.7.4",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-rate-limit": "^8.1.0",
     "helmet": "^7.2.0",
+    "inquirer": "^9.2.12",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "ora": "^7.0.1",
     "pg": "^8.11.3",
     "rate-limiter-flexible": "^3.0.0",
     "redis": "^4.6.10",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
+    "table": "^6.8.1",
     "uuid": "^9.0.1",
-    "winston": "^3.11.0"
+    "winston": "^3.11.0",
+    "yaml": "^2.3.4"
   },
   "devDependencies": {
     "@playwright/test": "^1.40.0",
