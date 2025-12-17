@@ -14,7 +14,8 @@
     "cli/rules"
   ],
   "scripts": {
-    "postinstall": "node cli/scripts/install-commands.js",
+    "postinstall": "node cli/scripts/install-commands.js || true",
+    "setup": "node cli/scripts/install-commands.js",
     "test": "echo \"Tests coming soon\" && exit 0"
   },
   "keywords": [
