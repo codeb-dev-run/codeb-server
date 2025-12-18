@@ -1,0 +1,95 @@
+name: Build and Deploy CodeB Dashboard
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'web-ui/**'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/codeb-dashboard
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./web-ui
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build
+    runs-on: self-hosted
+    steps:
+      - name: Deploy to server
+        run: |
+          # Pull latest image
+          podman pull ghcr.io/${{ github.repository_owner }}/codeb-dashboard:latest
+
+          # Stop existing container if running
+          podman stop codeb-dashboard 2>/dev/null || true
+          podman rm codeb-dashboard 2>/dev/null || true
+
+          # Run new container
+          podman run -d \
+            --name codeb-dashboard \
+            --restart always \
+            -p 3100:3000 \
+            -e MCP_SERVER_URL=http://localhost:3101 \
+            -e NODE_ENV=production \
+            ghcr.io/${{ github.repository_owner }}/codeb-dashboard:latest
+
+          # Verify deployment
+          sleep 5
+          curl -f http://localhost:3100 || exit 1
+
+      - name: Configure Caddy
+        run: |
+          # Create Caddy site config if not exists
+          if [ ! -f /etc/caddy/sites/codeb-dashboard.caddy ]; then
+            cat > /etc/caddy/sites/codeb-dashboard.caddy << 'EOF'
+          dashboard.codeb.dev {
+              reverse_proxy localhost:3100
+          }
+          EOF
+            systemctl reload caddy
+          fi
+
+      - name: Notify success
+        if: success()
+        run: echo "✅ CodeB Dashboard deployed successfully"
