@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getProjects, getContainers, sshExec } from "@/lib/ssh";
+import { getProjects, sshExec, type Project } from "@/lib/ssh";
 
 // GET: Get all projects
 export async function GET(request: NextRequest) {
@@ -10,13 +10,11 @@ export async function GET(request: NextRequest) {
     const projects = await getProjects();
 
     // Preview 환경 필터링 옵션
-    const filteredProjects = includePreview
+    const filteredProjects: Project[] = includePreview
       ? projects
-      : projects.map((p: { environments?: unknown[] }) => ({
+      : projects.map((p) => ({
           ...p,
-          environments: (p.environments || []).filter(
-            (e: { name?: string }) => e.name !== "preview"
-          ),
+          environments: p.environments.filter((e) => e.name !== "preview"),
         }));
 
     return NextResponse.json({

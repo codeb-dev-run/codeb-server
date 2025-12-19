@@ -47,6 +47,27 @@ interface SSHResult {
   error?: string;
 }
 
+export interface ProjectEnvironment {
+  name: string;
+  status: string;
+  container?: string;
+  image?: string;
+  branch?: string;
+  server?: string;
+  domain?: string;
+  port?: number;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  environments: ProjectEnvironment[];
+  gitRepo?: string;
+  lastDeployed?: string;
+}
+
 /**
  * SSH 명령 실행
  */
@@ -179,7 +200,7 @@ export async function getContainers(serverName: ServerName) {
 /**
  * 프로젝트 목록 조회 (App 서버 기준)
  */
-export async function getProjects() {
+export async function getProjects(): Promise<Project[]> {
   // App 서버의 컨테이너 목록 조회
   const appContainers = await getContainers('app');
 
@@ -200,7 +221,7 @@ export async function getProjects() {
   }
 
   // 컨테이너 정보를 프로젝트로 변환
-  const projects = new Map<string, unknown>();
+  const projects = new Map<string, Project>();
 
   for (const container of appContainers) {
     // 시스템 컨테이너 제외
@@ -225,7 +246,7 @@ export async function getProjects() {
       });
     }
 
-    const project = projects.get(projectName) as { environments: unknown[] };
+    const project = projects.get(projectName)!;
     project.environments.push({
       name: environment,
       status: container.status.includes('Up') ? 'running' : 'stopped',
@@ -249,7 +270,7 @@ export async function getProjects() {
       });
     }
 
-    const project = projects.get(projectName) as { environments: unknown[] };
+    const project = projects.get(projectName)!;
     project.environments.push({
       name: 'preview',
       branch: container.name.split('-preview-')[1] || 'unknown',
