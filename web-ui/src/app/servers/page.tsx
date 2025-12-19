@@ -142,16 +142,19 @@ export default function ServersPage() {
         {/* Servers Grid */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {servers.map((server) => (
-            <Card
+            <div
               key={server.id}
-              className={`cursor-pointer transition-all ${
+              className="cursor-pointer"
+              onClick={() =>
+                setSelectedServer(selectedServer === server.id ? null : server.id)
+              }
+            >
+            <Card
+              className={`transition-all ${
                 selectedServer === server.id
                   ? "ring-2 ring-blue-500 shadow-md"
                   : "hover:shadow-md"
               }`}
-              onClick={() =>
-                setSelectedServer(selectedServer === server.id ? null : server.id)
-              }
             >
               <CardContent className="p-6">
                 {/* Header */}
@@ -249,6 +252,7 @@ export default function ServersPage() {
                 </div>
               </CardContent>
             </Card>
+            </div>
           ))}
         </div>
 
