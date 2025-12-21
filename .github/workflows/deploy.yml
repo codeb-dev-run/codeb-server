@@ -182,7 +182,7 @@ jobs:
     name: Validate Port Allocation
     runs-on: self-hosted
     needs: build
-    if: needs.build.result == 'success'
+    if: always() && needs.build.result == 'success'
 
     outputs:
       port_valid: ${{ steps.validate.outputs.valid }}
@@ -248,9 +248,14 @@ jobs:
     runs-on: self-hosted
     needs: [build, port-validate]
     if: |
+      always() &&
       needs.build.result == 'success' &&
+      needs.port-validate.result == 'success' &&
       needs.port-validate.outputs.port_valid == 'true' &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: read
+      packages: read
 
     env:
       ENVIRONMENT: ${{ needs.build.outputs.environment }}
@@ -269,6 +274,10 @@ jobs:
             echo "port=3003" >> $GITHUB_OUTPUT
             echo "url=test-scan-project-staging.one-q.xyz" >> $GITHUB_OUTPUT
           fi
+
+      - name: Login to Container Registry (ghcr.io)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Pull image from registry
         run: |
