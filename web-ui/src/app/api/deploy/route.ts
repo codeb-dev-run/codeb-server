@@ -23,7 +23,8 @@ function verifyApiKeyFromConfig(apiKey: string): boolean {
   }
 
   // Load from api-keys.json
-  const apiKeysPath = join(process.cwd(), '..', 'config', 'api-keys.json');
+  const configDir = process.env.CODEB_CONFIG_DIR || '/tmp/codeb-config';
+  const apiKeysPath = join(configDir, 'api-keys.json');
   if (existsSync(apiKeysPath)) {
     try {
       const content = readFileSync(apiKeysPath, 'utf-8');

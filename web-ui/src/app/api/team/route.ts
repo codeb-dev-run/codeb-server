@@ -3,8 +3,9 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { randomBytes } from 'crypto';
 
-// Config file path
-const CONFIG_PATH = join(process.cwd(), '..', 'config', 'team-members.json');
+// Config file path - use /tmp for container compatibility or custom path
+const CONFIG_DIR = process.env.CODEB_CONFIG_DIR || '/tmp/codeb-config';
+const CONFIG_PATH = join(CONFIG_DIR, 'team-members.json');
 
 /**
  * Generate secure API Key
