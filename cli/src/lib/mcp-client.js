@@ -19,7 +19,15 @@ import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import chalk from 'chalk';
-import { getServerHost, getServerUser, getBaseDomain, getApiKey } from './config.js';
+import {
+  getServerHost,
+  getServerUser,
+  getBaseDomain,
+  getApiKey,
+  validateServerHost,
+  isBlockedServer,
+  ALLOWED_SERVERS
+} from './config.js';
 
 // ============================================================================
 // 상수 및 설정
@@ -114,6 +122,7 @@ class MCPClient {
 
   /**
    * SSH 접근 가능 여부 확인
+   * 차단된 서버는 접근 거부
    */
   async checkSSHAccess() {
     if (!this.serverHost) {
@@ -121,6 +130,15 @@ class MCPClient {
     }
 
     if (!this.serverHost) return false;
+
+    // 차단된 서버 체크
+    const blockCheck = isBlockedServer(this.serverHost);
+    if (blockCheck.blocked) {
+      console.log(chalk.red(`🚫 차단된 서버: ${this.serverHost}`));
+      console.log(chalk.yellow(`   이유: ${blockCheck.reason}`));
+      console.log(chalk.green(`   대안: ${blockCheck.alternative}`));
+      return false;
+    }
 
     try {
       execSync(
@@ -353,6 +371,17 @@ class MCPClient {
 
     if (!this.serverHost) {
       throw new Error('Server configuration not found. Run "we config init" first.');
+    }
+
+    // 차단된 서버 체크
+    const blockCheck = isBlockedServer(this.serverHost);
+    if (blockCheck.blocked) {
+      throw new Error(
+        `🚫 차단된 서버로의 연결 거부: ${this.serverHost}\n` +
+        `   이유: ${blockCheck.reason}\n` +
+        `   대안: ${blockCheck.alternative}\n` +
+        `   설정 변경: we config init`
+      );
     }
 
     // 폴백 경고 (첫 번째 호출 시만)

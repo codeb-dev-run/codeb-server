@@ -37,11 +37,12 @@ import { config } from '../src/commands/config.js';
 import { mcp } from '../src/commands/mcp.js';
 import { ssot } from '../src/commands/ssot.js';
 import { setup } from '../src/commands/setup.js';
-import { envScan, envPull, envPush, envList, envRestore, envBackups } from '../src/commands/env.js';
+import { envScan, envPull, envPush, envFix, envList, envRestore, envBackups } from '../src/commands/env.js';
 import { project } from '../src/commands/project.js';
 import { team } from '../src/commands/team.js';
 import { preview } from '../src/commands/preview.js';
 import { tui } from '../src/commands/tui.js';
+import { init } from '../src/commands/init.js';
 import { getServerHost, getServerUser, getDbPassword } from '../src/lib/config.js';
 
 const program = new Command();
@@ -50,7 +51,7 @@ const program = new Command();
 const isMcpServe = process.argv.includes('mcp') && process.argv.includes('serve');
 if (!isMcpServe) {
   console.log(chalk.cyan.bold('\n╔═══════════════════════════════════════════════╗'));
-  console.log(chalk.cyan.bold('║   /we: Web Deploy CLI v3.0.0                  ║'));
+  console.log(chalk.cyan.bold('║   /we: Web Deploy CLI v3.0.12                 ║'));
   console.log(chalk.cyan.bold('║   scan → up → deploy (MCP-First)              ║'));
   console.log(chalk.cyan.bold('╚═══════════════════════════════════════════════╝\n'));
 }
@@ -58,7 +59,7 @@ if (!isMcpServe) {
 program
   .name('/we:')
   .description('/we: Web Deploy CLI - MCP-First Architecture for Claude Code')
-  .version('3.0.0');
+  .version('3.0.12');
 
 // ============================================================================
 // Core Commands (MCP-First Architecture)
@@ -67,14 +68,24 @@ program
 // Scan Command - 핵심 명령어 #1
 program
   .command('scan')
-  .description('Scan server state (projects, servers, ports) - outputs JSON for MCP/Claude')
+  .description('Scan server state and validate infrastructure (ENV, GitHub Actions, Quadlet)')
   .argument('[project]', 'Project name to scan (optional, scans all if not specified)')
   .option('-s, --server', 'Scan servers only')
   .option('-p, --ports', 'Scan port allocation only')
   .option('-j, --json', 'Output in JSON format (for MCP/Claude)')
   .option('-d, --diff', 'Compare local vs server state')
+  .option('-v, --validate', 'Validate infrastructure (ENV, GitHub Actions, Quadlet, Network)')
   .option('-e, --environment <env>', 'Target environment', 'production')
-  .action(scan);
+  .option('-c, --cleanup', 'Scan and backup dangerous files (blocked server IPs, etc.)')
+  .option('--dry-run', 'Show what would be cleaned up without actually doing it')
+  .option('--force', 'Skip confirmation prompts for cleanup')
+  .action(async (project, options) => {
+    if (options.cleanup) {
+      const { scanWithCleanup } = await import('../src/commands/scan.js');
+      return scanWithCleanup(project, options);
+    }
+    return scan(project, options);
+  });
 
 // Up Command - 핵심 명령어 #2
 program
@@ -285,11 +296,12 @@ program
 // ENV Command (환경 변수 관리 - Vercel/Supabase 스타일)
 program
   .command('env')
-  .description('Environment variable management - scan, pull, push')
-  .argument('<action>', 'Action (scan|pull|push|list)')
+  .description('Environment variable management - scan, pull, push, fix')
+  .argument('<action>', 'Action (scan|pull|push|fix|list|restore|backups)')
   .argument('[project]', 'Project name (auto-detected from package.json)')
   .option('--env <environment>', 'Target environment (staging|production)', 'production')
   .option('--force', 'Force overwrite without prompts')
+  .option('--dry-run', 'Show what would be changed without applying (for fix)')
   .action(async (action, project, options) => {
     switch (action) {
       case 'scan':
@@ -300,6 +312,12 @@ program
         break;
       case 'push':
         await envPush(project, options);
+        break;
+      case 'fix':
+        await envFix(project, {
+          environment: options.env,
+          dryRun: options.dryRun
+        });
         break;
       case 'list':
         await envList(project, options);
@@ -312,7 +330,7 @@ program
         break;
       default:
         console.log(chalk.red(`Unknown action: ${action}`));
-        console.log(chalk.gray('Available actions: scan, pull, push, list, restore, backups'));
+        console.log(chalk.gray('Available actions: scan, pull, push, fix, list, restore, backups'));
     }
   });
 
@@ -343,6 +361,14 @@ program
   .option('-c, --compact', 'Compact mode (smaller widgets)')
   .option('-r, --refresh <seconds>', 'Auto-refresh interval in seconds', '30')
   .action(tui);
+
+// Init Command (프로젝트에 CodeB 설정 설치)
+program
+  .command('init')
+  .description('Initialize CodeB configuration in current project (CLAUDE.md, slash commands, hooks)')
+  .option('-p, --path <path>', 'Target project path (default: current directory)')
+  .option('-f, --force', 'Overwrite existing files')
+  .action(init);
 
 // Project Command (프로젝트 자동 생성 - API 기반)
 program

@@ -17,34 +17,34 @@ import ora from 'ora';
 // 설정
 // =============================================================================
 
-const CODEB_SERVER = '141.164.60.51';
+// App 서버가 메인 서버 (PowerDNS + Caddy 포함)
+const CODEB_SERVER = '158.247.203.55';
 const CODEB_USER = 'root';
 
 // 허용된 서버 목록
 // 아키텍처:
-// - 141.164.60.51 (CodeB Infra): PowerDNS + Caddy (네임서버 + 리버스 프록시)
-// - 나머지 서버: 개별 서비스 배포 (격리된 환경)
+// - 158.247.203.55 (App): Next.js + Dashboard + PowerDNS + Caddy
+// - 141.164.42.213 (Streaming): Centrifugo WebSocket
+// - 64.176.226.119 (Storage): PostgreSQL + Redis
+// - 141.164.37.63 (Backup): 백업 + 모니터링
 // 배포 흐름: Git Push → GitHub Actions (build/test) → GHCR push → 서버 pull/restart
 const ALLOWED_SERVERS = {
   ips: [
-    '141.164.60.51',    // CodeB Infra (PowerDNS + Caddy)
-    '158.247.203.55',   // Videopick App
-    '141.164.42.213',   // Videopick Streaming
-    '64.176.226.119',   // Videopick Storage
-    '141.164.37.63',    // Videopick Backup
+    '158.247.203.55',   // App (app.codeb.kr) - 메인 서버
+    '141.164.42.213',   // Streaming (ws.codeb.kr)
+    '64.176.226.119',   // Storage (db.codeb.kr)
+    '141.164.37.63',    // Backup (backup.codeb.kr)
   ],
   hostnames: [
-    'codeb-infra',
+    'app.codeb.kr',
+    'ws.codeb.kr',
+    'db.codeb.kr',
+    'backup.codeb.kr',
     'localhost',
     '127.0.0.1',
   ],
   // 서버별 역할 정의
   roles: {
-    '141.164.60.51': {
-      name: 'CodeB Infra',
-      services: ['powerdns', 'caddy', 'mcp-server'],
-      description: '네임서버 + 리버스 프록시 + MCP'
-    },
     '158.247.203.55': {
       name: 'Videopick App',
       services: ['app', 'postgres', 'redis'],
@@ -154,15 +154,17 @@ CACHE_TTL_MINUTES = 30
 
 # 기본 허용 서버 (캐시 없을 때 폴백)
 DEFAULT_ALLOWED_IPS = [
-    "141.164.60.51",    # CodeB Infra
-    "158.247.203.55",   # Videopick App
-    "141.164.42.213",   # Videopick Streaming
-    "64.176.226.119",   # Videopick Storage
-    "141.164.37.63",    # Videopick Backup
+    "158.247.203.55",   # App (app.codeb.kr)
+    "141.164.42.213",   # Streaming (ws.codeb.kr)
+    "64.176.226.119",   # Storage (db.codeb.kr)
+    "141.164.37.63",    # Backup (backup.codeb.kr)
 ]
 
 DEFAULT_ALLOWED_HOSTNAMES = [
-    "codeb-infra",
+    "app.codeb.kr",
+    "ws.codeb.kr",
+    "db.codeb.kr",
+    "backup.codeb.kr",
     "localhost",
     "127.0.0.1",
 ]
@@ -411,11 +413,10 @@ we ssot sync                   # 서버 데이터 동기화
 ### 3. SSH Only to Allowed Servers
 
 허용된 서버만 SSH 접속 가능:
-- 141.164.60.51 (CodeB Infra)
-- 158.247.203.55 (Videopick App)
-- 141.164.42.213 (Videopick Streaming)
-- 64.176.226.119 (Videopick Storage)
-- 141.164.37.63 (Videopick Backup)
+- 158.247.203.55 (App - app.codeb.kr)
+- 141.164.42.213 (Streaming - ws.codeb.kr)
+- 64.176.226.119 (Storage - db.codeb.kr)
+- 141.164.37.63 (Backup - backup.codeb.kr)
 
 ### 4. Environment File Protection
 

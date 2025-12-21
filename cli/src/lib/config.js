@@ -34,6 +34,122 @@ const DEFAULTS = {
   CODEB_API_KEY: '',  // Developer용 HTTP API 키
 };
 
+// ============================================================================
+// 서버 인프라 설정 (Single Source of Truth)
+// ============================================================================
+
+/**
+ * 허용된 서버 목록 (신규 인프라)
+ */
+export const ALLOWED_SERVERS = {
+  app: {
+    ip: '158.247.203.55',
+    domain: 'app.codeb.kr',
+    role: 'App Server',
+    services: ['Next.js', 'Dashboard', 'PowerDNS', 'GitHub Actions Runner']
+  },
+  streaming: {
+    ip: '141.164.42.213',
+    domain: 'ws.codeb.kr',
+    alias: 'streaming.codeb.kr',
+    role: 'Streaming Server',
+    services: ['Centrifugo']
+  },
+  storage: {
+    ip: '64.176.226.119',
+    domain: 'db.codeb.kr',
+    alias: 'storage.codeb.kr',
+    role: 'Storage Server',
+    services: ['PostgreSQL', 'Redis']
+  },
+  backup: {
+    ip: '141.164.37.63',
+    domain: 'backup.codeb.kr',
+    role: 'Backup Server',
+    services: ['Backup', 'Monitoring', 'ENV Backup']
+  }
+};
+
+/**
+ * 차단된 서버 목록 (구버전/삭제 예정)
+ * 이 서버들에 대한 연결은 거부됨
+ */
+export const BLOCKED_SERVERS = [
+  {
+    ip: '141.164.60.51',
+    reason: '삭제 예정 서버 (다른 Vultr 계정)',
+    alternative: 'app.codeb.kr (158.247.203.55)'
+  }
+];
+
+/**
+ * 서버 IP가 차단되었는지 확인
+ * @param {string} serverHost - 서버 IP 또는 도메인
+ * @returns {{ blocked: boolean, reason?: string, alternative?: string }}
+ */
+export function isBlockedServer(serverHost) {
+  if (!serverHost) return { blocked: false };
+
+  const blocked = BLOCKED_SERVERS.find(s =>
+    serverHost === s.ip || serverHost.includes(s.ip)
+  );
+
+  if (blocked) {
+    return {
+      blocked: true,
+      reason: blocked.reason,
+      alternative: blocked.alternative
+    };
+  }
+
+  return { blocked: false };
+}
+
+/**
+ * 서버 IP가 허용된 서버인지 확인
+ * @param {string} serverHost - 서버 IP 또는 도메인
+ * @returns {{ allowed: boolean, server?: object, role?: string }}
+ */
+export function isAllowedServer(serverHost) {
+  if (!serverHost) return { allowed: false };
+
+  for (const [role, server] of Object.entries(ALLOWED_SERVERS)) {
+    if (serverHost === server.ip ||
+        serverHost === server.domain ||
+        serverHost === server.alias) {
+      return { allowed: true, server, role };
+    }
+  }
+
+  return { allowed: false };
+}
+
+/**
+ * 서버 호스트 검증 (차단 + 허용 체크)
+ * @param {string} serverHost - 서버 IP 또는 도메인
+ * @throws {Error} 차단된 서버일 경우 에러 발생
+ */
+export function validateServerHost(serverHost) {
+  const blockCheck = isBlockedServer(serverHost);
+  if (blockCheck.blocked) {
+    throw new Error(
+      `🚫 차단된 서버: ${serverHost}\n` +
+      `   이유: ${blockCheck.reason}\n` +
+      `   대안: ${blockCheck.alternative}`
+    );
+  }
+
+  const allowCheck = isAllowedServer(serverHost);
+  if (!allowCheck.allowed) {
+    console.warn(
+      `⚠️  알 수 없는 서버: ${serverHost}\n` +
+      `   허용된 서버: ${Object.values(ALLOWED_SERVERS).map(s => s.domain).join(', ')}`
+    );
+  }
+
+  return allowCheck;
+}
+
 /**
  * 설정 파일에서 값 읽기
  */
@@ -179,5 +295,11 @@ export default {
   getApiKey,
   getConfigDir,
   getConfigFile,
-  getAllConfig
+  getAllConfig,
+  // 서버 인프라 관련
+  ALLOWED_SERVERS,
+  BLOCKED_SERVERS,
+  isBlockedServer,
+  isAllowedServer,
+  validateServerHost
 };

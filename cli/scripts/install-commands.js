@@ -219,10 +219,66 @@ async function installRuleFiles() {
     }
 
     console.log(`   📍 위치: ~/.claude/`);
-    return { installed, skipped };
+
+    // Also install to current project directory if it's a git repo
+    const projectClaudeMd = await installProjectClaudeMd();
+
+    return { installed: installed + projectClaudeMd.installed, skipped: skipped + projectClaudeMd.skipped };
 
   } catch (err) {
     console.error('   ❌ 규칙 파일 설치 오류:', err.message);
+    return { installed: 0, skipped: 0 };
+  }
+}
+
+// ================================================================
+// 3.5. Install CLAUDE.md to Project Directory
+// ================================================================
+async function installProjectClaudeMd() {
+  try {
+    // Find project root (where package.json or .git exists)
+    let projectRoot = process.cwd();
+
+    // Check if we're in a valid project directory
+    const hasPackageJson = existsSync(path.join(projectRoot, 'package.json'));
+    const hasGit = existsSync(path.join(projectRoot, '.git'));
+
+    if (!hasPackageJson && !hasGit) {
+      // Not a project directory, skip
+      return { installed: 0, skipped: 0 };
+    }
+
+    const srcPath = path.join(RULES_SOURCE, 'CLAUDE.md');
+    const destPath = path.join(projectRoot, 'CLAUDE.md');
+
+    if (!existsSync(srcPath)) {
+      return { installed: 0, skipped: 0 };
+    }
+
+    // Check if already exists and is same content
+    if (existsSync(destPath)) {
+      const srcContent = await fs.readFile(srcPath, 'utf-8');
+      const destContent = await fs.readFile(destPath, 'utf-8');
+
+      if (srcContent === destContent) {
+        console.log(`   ℹ️  프로젝트 CLAUDE.md (동일, 건너뜀)`);
+        return { installed: 0, skipped: 1 };
+      }
+
+      // Backup existing
+      const backupPath = `${destPath}.backup.${Date.now()}`;
+      await fs.copyFile(destPath, backupPath);
+      console.log(`   📋 프로젝트 CLAUDE.md 백업`);
+    }
+
+    await fs.copyFile(srcPath, destPath);
+    console.log(`   ✅ 프로젝트 CLAUDE.md`);
+    console.log(`   📍 위치: ${projectRoot}/CLAUDE.md`);
+
+    return { installed: 1, skipped: 0 };
+
+  } catch (err) {
+    // Silently skip if project installation fails
     return { installed: 0, skipped: 0 };
   }
 }

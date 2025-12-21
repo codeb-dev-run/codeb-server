@@ -931,6 +931,228 @@ export async function envBackups(projectName, options = {}) {
   }
 }
 
+// ============================================================================
+// ENV Fix - 잘못된 ENV 자동 수정
+// ============================================================================
+
+// 올바른 서버 도메인 정보
+const SERVER_CONFIG = {
+  storage: {
+    host: 'db.codeb.kr',
+    ip: '64.176.226.119',
+    postgresPort: 5432,
+    redisPort: 6379
+  },
+  streaming: {
+    host: 'ws.codeb.kr',
+    ip: '141.164.42.213',
+    port: 8000
+  },
+  app: {
+    host: 'app.codeb.kr',
+    ip: '158.247.203.55'
+  }
+};
+
+// 잘못된 호스트 패턴 (수정 대상)
+const INVALID_HOSTS = [
+  'localhost',
+  '127.0.0.1',
+  'codeb-postgres',
+  'codeb-redis',
+  'n1.codeb.kr',
+  'n2.codeb.kr',
+  'n3.codeb.kr',
+  'n4.codeb.kr'
+];
+
+/**
+ * we env fix - 잘못된 ENV 자동 수정
+ * localhost, 컨테이너명 → db.codeb.kr, ws.codeb.kr 로 교체
+ */
+export async function envFix(projectName, options = {}) {
+  const spinner = ora('Analyzing ENV files...').start();
+
+  try {
+    // 프로젝트 이름 추론
+    if (!projectName) {
+      const packageJsonPath = join(process.cwd(), 'package.json');
+      if (existsSync(packageJsonPath)) {
+        const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+        projectName = pkg.name;
+      }
+    }
+
+    const environment = options.environment || 'production';
+    const dryRun = options.dryRun || false;
+
+    // 대상 ENV 파일 찾기
+    const envFiles = [
+      `.env.${environment}`,
+      '.env.production',
+      '.env.local',
+      '.env'
+    ];
+
+    const fixes = [];
+    let targetFile = null;
+    let originalContent = null;
+
+    for (const fileName of envFiles) {
+      const filePath = join(process.cwd(), fileName);
+      if (existsSync(filePath)) {
+        targetFile = filePath;
+        originalContent = readFileSync(filePath, 'utf-8');
+
+        const lines = originalContent.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (line.startsWith('#') || !line.includes('=')) continue;
+
+          const [key, ...valueParts] = line.split('=');
+          const value = valueParts.join('=');
+
+          // DATABASE_URL 수정
+          if (key.trim() === 'DATABASE_URL') {
+            for (const invalidHost of INVALID_HOSTS) {
+              if (value.includes(`@${invalidHost}:`) || value.includes(`@${invalidHost}/`)) {
+                const newValue = value.replace(
+                  new RegExp(`@${invalidHost.replace('.', '\\.')}(:|/)`),
+                  `@${SERVER_CONFIG.storage.host}$1`
+                );
+                fixes.push({
+                  file: fileName,
+                  line: i + 1,
+                  key: key.trim(),
+                  oldValue: value.trim(),
+                  newValue: newValue.trim(),
+                  reason: `${invalidHost} → ${SERVER_CONFIG.storage.host}`
+                });
+                lines[i] = `${key}=${newValue}`;
+                break;
+              }
+            }
+          }
+
+          // REDIS_URL 수정
+          if (key.trim() === 'REDIS_URL') {
+            for (const invalidHost of INVALID_HOSTS) {
+              if (value.includes(`://${invalidHost}:`) || value.includes(`://${invalidHost}/`)) {
+                const newValue = value.replace(
+                  new RegExp(`://${invalidHost.replace('.', '\\.')}(:|/)`),
+                  `://${SERVER_CONFIG.storage.host}$1`
+                );
+                fixes.push({
+                  file: fileName,
+                  line: i + 1,
+                  key: key.trim(),
+                  oldValue: value.trim(),
+                  newValue: newValue.trim(),
+                  reason: `${invalidHost} → ${SERVER_CONFIG.storage.host}`
+                });
+                lines[i] = `${key}=${newValue}`;
+                break;
+              }
+            }
+          }
+
+          // CENTRIFUGO_URL 수정 (n2.codeb.kr → ws.codeb.kr)
+          if (key.trim() === 'CENTRIFUGO_URL' || key.trim() === 'CENTRIFUGO_API_URL') {
+            if (value.includes('n2.codeb.kr')) {
+              const newValue = value.replace(/n2\.codeb\.kr/g, SERVER_CONFIG.streaming.host);
+              fixes.push({
+                file: fileName,
+                line: i + 1,
+                key: key.trim(),
+                oldValue: value.trim(),
+                newValue: newValue.trim(),
+                reason: `n2.codeb.kr → ${SERVER_CONFIG.streaming.host}`
+              });
+              lines[i] = `${key}=${newValue}`;
+            }
+          }
+        }
+
+        // 수정 사항이 있으면 여기서 처리
+        if (fixes.length > 0) {
+          originalContent = lines.join('\n');
+        }
+        break;  // 첫 번째 발견된 파일만 처리
+      }
+    }
+
+    spinner.stop();
+
+    console.log(chalk.cyan(`\n🔧 ENV Fix: ${projectName || 'current project'}\n`));
+
+    if (!targetFile) {
+      console.log(chalk.yellow('No .env files found in current directory'));
+      console.log(chalk.gray('Expected: .env, .env.local, .env.production, .env.staging'));
+      return;
+    }
+
+    console.log(chalk.gray(`Target: ${targetFile}`));
+    console.log('');
+
+    if (fixes.length === 0) {
+      console.log(chalk.green('✅ No issues found! ENV configuration is correct.'));
+      console.log(chalk.gray(`\nExpected hosts:`));
+      console.log(chalk.gray(`  PostgreSQL/Redis: ${SERVER_CONFIG.storage.host}`));
+      console.log(chalk.gray(`  Centrifugo:       ${SERVER_CONFIG.streaming.host}`));
+      return;
+    }
+
+    console.log(chalk.yellow(`Found ${fixes.length} issue(s) to fix:\n`));
+
+    for (const fix of fixes) {
+      console.log(chalk.red(`  ✗ ${fix.key} (line ${fix.line})`));
+      console.log(chalk.gray(`    Before: ${fix.oldValue.substring(0, 60)}...`));
+      console.log(chalk.green(`    After:  ${fix.newValue.substring(0, 60)}...`));
+      console.log(chalk.gray(`    Reason: ${fix.reason}`));
+      console.log('');
+    }
+
+    if (dryRun) {
+      console.log(chalk.yellow('Dry run mode - no changes made'));
+      console.log(chalk.gray('Remove --dry-run to apply fixes'));
+      return { fixes, applied: false };
+    }
+
+    // 사용자 확인
+    const { confirm } = await inquirer.prompt([{
+      type: 'confirm',
+      name: 'confirm',
+      message: 'Apply these fixes?',
+      default: true
+    }]);
+
+    if (!confirm) {
+      console.log(chalk.gray('Cancelled'));
+      return { fixes, applied: false };
+    }
+
+    // 백업 생성
+    const backupPath = `${targetFile}.backup.${Date.now()}`;
+    writeFileSync(backupPath, readFileSync(targetFile, 'utf-8'));
+    console.log(chalk.gray(`\nBackup: ${backupPath}`));
+
+    // 수정 적용
+    writeFileSync(targetFile, originalContent);
+
+    console.log(chalk.green(`\n✅ Fixed ${fixes.length} issue(s) in ${targetFile}`));
+    console.log(chalk.yellow('\n⚠️  Remember to:'));
+    console.log(chalk.gray('  1. Verify the changes'));
+    console.log(chalk.gray('  2. Restart your application'));
+    console.log(chalk.gray('  3. If deploying, commit and push the changes'));
+
+    return { fixes, applied: true };
+
+  } catch (error) {
+    spinner.fail(`Fix failed: ${error.message}`);
+    throw error;
+  }
+}
+
 /**
  * we env list - 환경 변수 목록
  */
@@ -958,6 +1180,7 @@ export default {
   envScan,
   envPull,
   envPush,
+  envFix,
   envList,
   envRestore,
   envBackups

@@ -1,6 +1,6 @@
 {
-  "name": "@codeb/we-cli",
-  "version": "3.0.0",
+  "name": "@codeblabdev-max/we-cli",
+  "version": "3.0.12",
   "description": "/we: Web Deploy CLI - MCP-First Architecture (scan → up → deploy)",
   "type": "module",
   "bin": {
@@ -63,6 +63,7 @@
     "npm": ">=9.0.0"
   },
   "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
     "access": "public"
   }
 }

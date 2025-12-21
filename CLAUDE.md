@@ -90,12 +90,11 @@ we env pull <project>              # 서버에서 로컬로 가져오기
 | 역할 | IP | 도메인 | 주요 서비스 |
 |------|-----|--------|------------|
 | **App** | 158.247.203.55 | app.codeb.kr | Next.js 앱, Dashboard, PowerDNS |
-| **Streaming** | 141.164.42.213 | streaming.codeb.kr, ws.codeb.kr | **Centrifugo** (WebSocket) |
+| **Streaming** | 141.164.42.213 | ws.codeb.kr, streaming.codeb.kr | **Centrifugo** (WebSocket) |
 | **Storage** | 64.176.226.119 | db.codeb.kr, storage.codeb.kr | PostgreSQL, Redis (공유) |
 | **Backup** | 141.164.37.63 | backup.codeb.kr | 백업, 모니터링 |
 
 ### 네임서버 (PowerDNS)
-
 - n1.codeb.kr → 158.247.203.55 (Primary NS)
 - n2.codeb.kr → 158.247.203.55 (Secondary NS)
 
@@ -103,11 +102,11 @@ we env pull <project>              # 서버에서 로컬로 가져오기
 
 | 서비스 | 포트 | 서버 |
 |--------|------|------|
-| PostgreSQL | 5432 | Storage (db.codeb.kr) |
-| Redis | 6379 | Storage (db.codeb.kr) |
-| Centrifugo | 8000 | Streaming (ws.codeb.kr) |
-| 프로덕션 앱 | 4000-4499 | App (app.codeb.kr) |
-| **Preview 앱** | **5000-5999** | **Backup (backup.codeb.kr)** |
+| PostgreSQL | 5432 | Storage (n3) |
+| Redis | 6379 | Storage (n3) |
+| Centrifugo | 8000 | Streaming (n2) |
+| 프로덕션 앱 | 4000-4499 | App (n1) |
+| 스테이징 앱 | 4500-4999 | App (n1) |
 | 개발용 | 5000-5499 | 로컬 |
 
 ---
@@ -202,36 +201,6 @@ CENTRIFUGO_SECRET=of0KuRFjjzhq5LlBURCuKqzTUAA08hwL
 
 ---
 
-## Deployment Strategy (Image Promotion)
-
-**1번 빌드, 테스트된 이미지 그대로 Production 배포**
-
-```
-feature-branch 푸시
-    ↓
-이미지 빌드 (1번만): ghcr.io/repo:sha-abc1234
-    ↓
-Preview 배포 (Backup 서버: 141.164.37.63)
-https://feature-login.preview.codeb.kr
-    ↓
-테스트 완료 → PR 생성 → 코드 리뷰
-    ↓
-PR 머지 (main)
-    ↓
-같은 이미지를 Production에 배포 (재빌드 X)
-    ↓
-Preview 환경 자동 삭제
-```
-
-### 핵심 원칙
-
-1. **1번 빌드**: 이미지는 한 번만 빌드 (SHA 태그)
-2. **테스트된 이미지 배포**: Preview에서 테스트한 바로 그 이미지가 Production으로
-3. **환경변수 런타임 주입**: 빌드 시 환경변수 굽지 않음, 실행 시 `--env-file` 주입
-4. **자동 정리**: PR 머지/닫힘 시 Preview 환경 자동 삭제
-
----
-
 ## Quick Reference
 
 ```bash
@@ -244,19 +213,13 @@ we ssot projects
 we workflow scan myapp
 
 # 배포
-we deploy myapp --environment production
+we deploy myapp --environment staging
 
 # 도메인 설정
 we domain setup myapp.codeb.dev --ssl
-
-# Preview 관리
-we preview list              # Preview 목록
-we preview status            # Preview 서버 상태
-we preview logs feature-xxx  # 로그 확인
-we preview delete feature-xxx # 삭제
 ```
 
 ## Permission Model
 
 - **Admin**: SSH + deploy + server settings
-- **Developer**: Git Push → GitHub Actions → Preview → PR 머지 → Production 자동 배포
+- **Developer**: Git Push only → GitHub Actions → auto deploy
