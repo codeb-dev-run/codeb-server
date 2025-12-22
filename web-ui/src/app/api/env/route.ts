@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { project, projectName, environment, action, version, key, value, variables } = body;
+    const { project, projectName, environment, action, version, key, value, variables, content, restart } = body;
 
     const projectId = project || projectName;
     if (!projectId) {
@@ -109,6 +109,93 @@ export async function POST(request: NextRequest) {
     }
 
     const env = environment || "production";
+
+    // ENV 파일 업로드 (앱 서버에 직접 배포)
+    if (action === "upload" && (variables || content)) {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+
+      // ENV 내용 준비
+      let envContent: string;
+      if (content) {
+        // 직접 content 제공
+        envContent = content;
+      } else {
+        // variables 객체를 ENV 형식으로 변환
+        envContent = Object.entries(variables as Record<string, string>)
+          .map(([k, v]) => `${k}=${v}`)
+          .join("\n");
+      }
+
+      // 1. 백업 서버에 저장 (히스토리 유지)
+      const backupResult = await sshExec(
+        "backup",
+        `
+        BACKUP_DIR="/opt/codeb/env-backup/${projectId}/${env}"
+        mkdir -p "$BACKUP_DIR"
+
+        # 현재 상태 백업
+        cp "$BACKUP_DIR/current.env" "$BACKUP_DIR/${timestamp}.env" 2>/dev/null || true
+
+        # 새 ENV 저장
+        cat > "$BACKUP_DIR/current.env" << 'ENVEOF'
+${envContent}
+ENVEOF
+
+        # master.env가 없으면 생성
+        [ ! -f "$BACKUP_DIR/master.env" ] && cp "$BACKUP_DIR/current.env" "$BACKUP_DIR/master.env"
+
+        echo "backup_saved"
+        `
+      );
+
+      // 2. App 서버에 ENV 업로드
+      const appResult = await sshExec(
+        "app",
+        `
+        PROJECT_DIR="/opt/codeb/projects/${projectId}"
+        mkdir -p "$PROJECT_DIR"
+
+        # 기존 ENV 백업
+        [ -f "$PROJECT_DIR/.env" ] && cp "$PROJECT_DIR/.env" "$PROJECT_DIR/.env.bak.${timestamp}"
+
+        # 새 ENV 파일 생성
+        cat > "$PROJECT_DIR/.env" << 'ENVEOF'
+${envContent}
+ENVEOF
+
+        chmod 600 "$PROJECT_DIR/.env"
+        echo "app_env_saved"
+        `
+      );
+
+      if (!appResult.success) {
+        return NextResponse.json(
+          { success: false, error: appResult.error || "Failed to upload ENV to app server" },
+          { status: 500 }
+        );
+      }
+
+      // 3. 서비스 재시작 (옵션)
+      let restartMessage = "";
+      if (restart !== false) {
+        const restartResult = await sshExec(
+          "app",
+          `systemctl --user restart ${projectId}.service 2>/dev/null || systemctl restart ${projectId}.service 2>/dev/null || echo "no_service"`
+        );
+        restartMessage = restartResult.success && !restartResult.output.includes("no_service")
+          ? " and service restarted"
+          : " (service restart skipped)";
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: `ENV uploaded to app server${restartMessage}`,
+        project: projectId,
+        environment: env,
+        backupSaved: backupResult.success,
+        appUpdated: appResult.success,
+      });
+    }
 
     // 단일 변수 설정
     if (action === "set" && key) {

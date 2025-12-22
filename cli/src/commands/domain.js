@@ -14,9 +14,15 @@ import inquirer from 'inquirer';
 import { mcpClient } from '../lib/mcp-client.js';
 import { ssotClient } from '../lib/ssot-client.js';
 import { validateDomain } from '../lib/validators.js';
+import { dnsApi } from '../lib/dns-api.js';
+
+// Check if running in MCP environment (no TTY)
+const isMCPEnvironment = !process.stdin.isTTY || process.env.MCP_MODE === 'true';
 
 export async function domain(action, domainName, options) {
-  const { project, ssl, www, force } = options;
+  const { project, ssl, www, force: forceOption } = options;
+  // In MCP environment, always force (no interactive prompts)
+  const force = forceOption || isMCPEnvironment;
 
   switch (action) {
     case 'setup':

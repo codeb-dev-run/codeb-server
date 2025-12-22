@@ -47,7 +47,7 @@ import { config } from '../src/commands/config.js';
 import { mcp } from '../src/commands/mcp.js';
 import { ssot } from '../src/commands/ssot.js';
 import { setup } from '../src/commands/setup.js';
-import { envScan, envPull, envPush, envFix, envList, envRestore, envBackups } from '../src/commands/env.js';
+import { envScan, envPull, envPush, envUpload, envFix, envList, envRestore, envBackups } from '../src/commands/env.js';
 import { project } from '../src/commands/project.js';
 import { team } from '../src/commands/team.js';
 import { preview } from '../src/commands/preview.js';
@@ -306,12 +306,15 @@ program
 // ENV Command (환경 변수 관리 - Vercel/Supabase 스타일)
 program
   .command('env')
-  .description('Environment variable management - scan, pull, push, fix')
-  .argument('<action>', 'Action (scan|pull|push|fix|list|restore|backups)')
+  .description('Environment variable management - scan, pull, push, upload, fix')
+  .argument('<action>', 'Action (scan|pull|push|upload|fix|list|restore|backups)')
   .argument('[project]', 'Project name (auto-detected from package.json)')
   .option('--env <environment>', 'Target environment (staging|production)', 'production')
   .option('--force', 'Force overwrite without prompts')
   .option('--dry-run', 'Show what would be changed without applying (for fix)')
+  .option('--file <path>', 'Source .env file path (for push)')
+  .option('--content <string>', 'ENV content string (for upload)')
+  .option('--no-restart', 'Skip service restart after upload')
   .action(async (action, project, options) => {
     switch (action) {
       case 'scan':
@@ -321,7 +324,18 @@ program
         await envPull(project, options);
         break;
       case 'push':
-        await envPush(project, options);
+        await envPush(project, {
+          environment: options.env,
+          file: options.file,
+          restart: options.restart
+        });
+        break;
+      case 'upload':
+        await envUpload(project, {
+          environment: options.env,
+          content: options.content,
+          restart: options.restart
+        });
         break;
       case 'fix':
         await envFix(project, {
@@ -340,7 +354,7 @@ program
         break;
       default:
         console.log(chalk.red(`Unknown action: ${action}`));
-        console.log(chalk.gray('Available actions: scan, pull, push, fix, list, restore, backups'));
+        console.log(chalk.gray('Available actions: scan, pull, push, upload, fix, list, restore, backups'));
     }
   });
 

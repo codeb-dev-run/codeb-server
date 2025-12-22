@@ -729,6 +729,59 @@ class MCPClient {
     });
   }
 
+  /**
+   * ENV 파일 업로드 (MCP API via HTTP)
+   * SSH 없이 HTTP API를 통해 ENV 파일을 서버에 업로드
+   */
+  async envUpload(params = {}) {
+    const { project, environment = 'production', content, variables, restart = true } = params;
+
+    if (!project) {
+      throw new Error('project is required');
+    }
+
+    if (!content && !variables) {
+      throw new Error('content or variables is required');
+    }
+
+    // Dashboard API 직접 호출 (HTTP API Mode)
+    const apiUrl = this.serverHost
+      ? `http://${this.serverHost}:3000/api/env`
+      : DASHBOARD_API_URL + '/env';
+
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': this.apiKey || '',
+          'X-Client': 'we-cli',
+        },
+        body: JSON.stringify({
+          project,
+          environment,
+          action: 'upload',
+          content,
+          variables,
+          restart,
+        }),
+        signal: AbortSignal.timeout(CONNECTION_TIMEOUT),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ message: response.statusText }));
+        throw new Error(error.error || error.message || `HTTP ${response.status}`);
+      }
+
+      return response.json();
+    } catch (error) {
+      if (error.name === 'TimeoutError') {
+        throw new Error('ENV upload request timeout');
+      }
+      throw error;
+    }
+  }
+
   // ============================================================================
   // 유틸리티 메서드
   // ============================================================================

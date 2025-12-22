@@ -702,11 +702,131 @@ function mergeEnvContent(existingContent, newContent) {
 }
 
 /**
- * we env push - 로컬 환경 변수를 서버에 동기화
+ * we env push - 로컬 ENV를 MCP API를 통해 서버에 업로드
  */
 export async function envPush(projectName, options = {}) {
-  console.log(chalk.yellow('⚠ env push is not yet implemented'));
-  console.log(chalk.gray('This would push local .env changes to server registry'));
+  const spinner = ora('Preparing ENV upload...').start();
+
+  try {
+    // 프로젝트 이름 추론
+    if (!projectName) {
+      const packageJsonPath = join(process.cwd(), 'package.json');
+      if (existsSync(packageJsonPath)) {
+        const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+        projectName = pkg.name;
+      }
+    }
+
+    if (!projectName) {
+      spinner.fail('Project name required');
+      console.log(chalk.gray('Usage: we env push <project-name>'));
+      return;
+    }
+
+    const environment = options.environment || 'production';
+    const envFile = options.file || `.env.${environment}`;
+    const restart = options.restart !== false;  // 기본값: true
+
+    // ENV 파일 찾기
+    const envFiles = [envFile, `.env.${environment}`, '.env.production', '.env.local', '.env'];
+    let envPath = null;
+    let envContent = null;
+
+    for (const fileName of envFiles) {
+      const filePath = join(process.cwd(), fileName);
+      if (existsSync(filePath)) {
+        envPath = filePath;
+        envContent = readFileSync(filePath, 'utf-8');
+        break;
+      }
+    }
+
+    if (!envContent) {
+      spinner.fail('No .env file found');
+      console.log(chalk.gray('Expected: .env, .env.local, .env.production'));
+      return;
+    }
+
+    spinner.text = 'Uploading ENV via MCP API...';
+
+    // MCP API 호출
+    const result = await mcpClient.envUpload({
+      project: projectName,
+      environment,
+      content: envContent,
+      restart
+    });
+
+    spinner.stop();
+
+    if (!result.success) {
+      console.log(chalk.red(`\n❌ Upload failed: ${result.error}\n`));
+      return;
+    }
+
+    console.log(chalk.green(`\n✅ ENV uploaded successfully!\n`));
+    console.log(chalk.gray(`Project: ${projectName}`));
+    console.log(chalk.gray(`Environment: ${environment}`));
+    console.log(chalk.gray(`Source: ${envPath}`));
+    console.log(chalk.gray(`Backup: ${result.backupSaved ? 'saved' : 'skipped'}`));
+    console.log(chalk.gray(`Service: ${restart ? 'restarted' : 'not restarted'}`));
+    console.log('');
+
+  } catch (error) {
+    spinner.fail(`Push failed: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
+ * we env upload - 직접 ENV 내용 업로드 (MCP용)
+ */
+export async function envUpload(projectName, options = {}) {
+  const spinner = ora('Uploading ENV...').start();
+
+  try {
+    if (!projectName) {
+      spinner.fail('Project name required');
+      console.log(chalk.gray('Usage: we env upload <project-name> --content "KEY=value..."'));
+      return;
+    }
+
+    const environment = options.environment || 'production';
+    const content = options.content;
+    const variables = options.variables;  // { KEY: 'value', ... }
+    const restart = options.restart !== false;
+
+    if (!content && !variables) {
+      spinner.fail('Either --content or --variables is required');
+      return;
+    }
+
+    // MCP API 호출
+    const result = await mcpClient.envUpload({
+      project: projectName,
+      environment,
+      content,
+      variables,
+      restart
+    });
+
+    spinner.stop();
+
+    if (!result.success) {
+      console.log(chalk.red(`\n❌ Upload failed: ${result.error}\n`));
+      return { success: false, error: result.error };
+    }
+
+    console.log(chalk.green(`\n✅ ENV uploaded successfully!\n`));
+    console.log(chalk.gray(`Project: ${projectName}`));
+    console.log(chalk.gray(`Environment: ${environment}`));
+
+    return { success: true, ...result };
+
+  } catch (error) {
+    spinner.fail(`Upload failed: ${error.message}`);
+    return { success: false, error: error.message };
+  }
 }
 
 // ============================================================================
@@ -1180,6 +1300,7 @@ export default {
   envScan,
   envPull,
   envPush,
+  envUpload,
   envFix,
   envList,
   envRestore,
