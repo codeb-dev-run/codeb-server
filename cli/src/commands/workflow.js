@@ -4092,6 +4092,31 @@ async function registerGitHubSecrets(repoName, options) {
       results.push({ name: 'SSH_PRIVATE_KEY', status: 'exists' });
     }
 
+    // GHCR_PAT - GitHub Container Registry Personal Access Token
+    if (!existingSecrets.includes('GHCR_PAT') || options.force) {
+      // Try to load from ~/.codeb/credentials.json or environment
+      const credentialsPath = process.env.HOME + '/.codeb/credentials.json';
+      let ghcrPat = process.env.GHCR_PAT;
+
+      if (!ghcrPat && existsSync(credentialsPath)) {
+        try {
+          const creds = JSON.parse(await readFile(credentialsPath, 'utf-8'));
+          ghcrPat = creds.GHCR_PAT;
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      if (ghcrPat) {
+        execSync(`gh secret set GHCR_PAT -R ${repoFullName} -b "${ghcrPat}"`, { stdio: 'pipe', timeout: 10000 });
+        results.push({ name: 'GHCR_PAT', value: '***', status: 'set' });
+      } else {
+        results.push({ name: 'GHCR_PAT', status: 'missing', error: 'Set GHCR_PAT in ~/.codeb/credentials.json or env' });
+      }
+    } else {
+      results.push({ name: 'GHCR_PAT', status: 'exists' });
+    }
+
     spinner.succeed('GitHub Secrets registered');
 
     console.log(chalk.green(`\n✅ GitHub Secrets for ${repoFullName}\n`));

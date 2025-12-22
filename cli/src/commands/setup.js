@@ -568,6 +568,53 @@ function ensureSSOTCache() {
 }
 
 /**
+ * GHCR_PAT 등 credentials 설정
+ * ~/.codeb/credentials.json에 저장
+ */
+async function ensureCredentials() {
+  const codebDir = path.join(os.homedir(), '.codeb');
+  const credentialsPath = path.join(codebDir, 'credentials.json');
+
+  if (!fs.existsSync(codebDir)) {
+    fs.mkdirSync(codebDir, { recursive: true });
+  }
+
+  let credentials = {};
+  if (fs.existsSync(credentialsPath)) {
+    try {
+      credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // GHCR_PAT가 없으면 입력 받기
+  if (!credentials.GHCR_PAT) {
+    const { ghcrPat } = await inquirer.prompt([
+      {
+        type: 'password',
+        name: 'ghcrPat',
+        message: 'GitHub Container Registry PAT (write:packages 권한):',
+        mask: '*',
+        validate: (input) => input.startsWith('ghp_') || input === '' ? true : 'ghp_로 시작하는 PAT를 입력하세요 (건너뛰려면 Enter)'
+      }
+    ]);
+
+    if (ghcrPat && ghcrPat.startsWith('ghp_')) {
+      credentials.GHCR_PAT = ghcrPat;
+      credentials.updatedAt = new Date().toISOString();
+      fs.writeFileSync(credentialsPath, JSON.stringify(credentials, null, 2));
+      fs.chmodSync(credentialsPath, '600'); // 보안: 소유자만 읽기
+      return { set: true, path: credentialsPath };
+    } else {
+      return { set: false, skipped: true };
+    }
+  }
+
+  return { set: true, exists: true, path: credentialsPath };
+}
+
+/**
  * MCP 설정 확인/설치
  */
 function checkMCPSetup() {
@@ -718,7 +765,18 @@ export async function setup(options) {
     console.log(chalk.yellow(`  ⚠ MCP 설정 필요: we mcp setup`));
   }
 
-  // 8. 서버 동기화 (Admin만)
+  // 8. GHCR_PAT 설정 (GitHub Container Registry)
+  console.log(chalk.cyan('\n6. GitHub Container Registry (GHCR) 설정...'));
+  results.credentials = await ensureCredentials();
+  if (results.credentials.exists) {
+    console.log(chalk.green(`  ✓ GHCR_PAT 설정됨 (기존)`));
+  } else if (results.credentials.set) {
+    console.log(chalk.green(`  ✓ GHCR_PAT 저장됨: ${results.credentials.path}`));
+  } else {
+    console.log(chalk.yellow(`  ⚠ GHCR_PAT 건너뜀 (나중에 설정 가능)`));
+  }
+
+  // 9. 서버 동기화 (Admin만)
   if (isAdmin) {
     console.log(chalk.cyan('\n6. 서버 데이터 동기화...'));
     results.serverSync = await syncFromServer(isAdmin);
@@ -739,22 +797,40 @@ export async function setup(options) {
   console.log(chalk.gray(`  • Hooks: ${results.hooks}`));
   console.log(chalk.gray(`  • Settings: ${results.settings}`));
   console.log(chalk.gray(`  • SSOT Cache: ${results.ssotCache}`));
+  if (results.credentials && results.credentials.set) {
+    console.log(chalk.gray(`  • GHCR_PAT: ~/.codeb/credentials.json`));
+  }
 
   if (results.projectClaudeMd) {
     console.log(chalk.white('\n프로젝트별 설치:'));
     console.log(chalk.gray(`  • CLAUDE.md: ${results.projectClaudeMd}`));
   }
 
-  console.log(chalk.white('\n📝 사용 방법:'));
-  console.log(chalk.cyan('  이제 어느 프로젝트에서든 CodeB CLI를 사용할 수 있습니다.'));
-  console.log(chalk.gray('  • we ssot status     - 서버 상태 확인'));
-  console.log(chalk.gray('  • we workflow init   - 새 프로젝트 초기화'));
-  console.log(chalk.gray('  • we deploy          - 프로젝트 배포'));
+  console.log(chalk.white('\n📝 다음 단계:'));
 
+  // MCP 설정이 필요한 경우
   if (!results.mcpSetup.installed) {
-    console.log(chalk.yellow('\n⚠️  MCP 서버 설정 필요:'));
-    console.log(chalk.gray('  we mcp setup'));
+    console.log(chalk.yellow('  1. MCP 서버 설정:'));
+    console.log(chalk.gray('     we mcp setup'));
+    console.log('');
   }
+
+  // 프로젝트 초기화 안내 (핵심!)
+  console.log(chalk.cyan.bold('  ▶ 각 프로젝트 폴더에서 실행:'));
+  console.log(chalk.white('     cd /path/to/your-project'));
+  console.log(chalk.green('     we init'));
+  console.log(chalk.gray('     → CLAUDE.md, slash commands, hooks 설치'));
+  console.log('');
+
+  console.log(chalk.white('📌 명령어 구분:'));
+  console.log(chalk.gray('  • we setup  - 글로벌 설치 (한 번만, 완료됨 ✓)'));
+  console.log(chalk.gray('  • we init   - 프로젝트별 설치 (각 프로젝트에서 실행)'));
+  console.log('');
+
+  console.log(chalk.white('🚀 사용 가능한 명령어:'));
+  console.log(chalk.gray('  • we ssot status     - 서버 상태 확인'));
+  console.log(chalk.gray('  • we workflow init   - 새 프로젝트 인프라 초기화'));
+  console.log(chalk.gray('  • we deploy          - 프로젝트 배포'));
 
   if (!isAdmin) {
     console.log(chalk.yellow('\n📝 Developer 모드:'));
