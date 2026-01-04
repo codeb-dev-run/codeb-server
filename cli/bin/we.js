@@ -53,6 +53,7 @@ import { team } from '../src/commands/team.js';
 import { preview } from '../src/commands/preview.js';
 import { tui } from '../src/commands/tui.js';
 import { init } from '../src/commands/init.js';
+import { update } from '../src/commands/update.js';
 import { getServerHost, getServerUser, getDbPassword } from '../src/lib/config.js';
 
 const program = new Command();
@@ -431,6 +432,17 @@ program
   .option('-p, --path <path>', 'Target project path (default: current directory)')
   .option('-f, --force', 'Overwrite existing files')
   .action(init);
+
+// Update Command (CLAUDE.md 및 규칙 파일 업데이트)
+program
+  .command('update')
+  .description('Update CLAUDE.md and rule files to latest version')
+  .option('-p, --path <path>', 'Target project path (default: current directory)')
+  .option('-f, --force', 'Force update all files including DEPLOYMENT_RULES.md')
+  .option('--no-global', 'Skip updating ~/.claude/CLAUDE.md')
+  .option('--no-claude-md', 'Skip updating project CLAUDE.md')
+  .option('--no-rules', 'Skip updating DEPLOYMENT_RULES.md')
+  .action(update);
 
 // Project Command (프로젝트 자동 생성 - API 기반)
 program
