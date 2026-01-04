@@ -5,6 +5,10 @@
  * This module structure allows for easier maintenance and testing
  *
  * Structure:
+ * - scan.js: Project scanning and analysis
+ * - migrate.js: Project migration to new CLI structure
+ * - init.js: Project initialization workflow
+ * - templates.js: Project configuration templates (CLAUDE.md, DEPLOYMENT_RULES.md)
  * - github-actions.js: GitHub Actions CI/CD workflow generator
  * - dockerfile.js: Dockerfile generator for various project types
  * - quadlet.js: Podman Quadlet configuration generators
@@ -13,6 +17,43 @@
  * - provisioning.js: Server infrastructure provisioning
  * - env-generator.js: Environment file generators
  */
+
+// Scan module - Project scanning and analysis
+export {
+  scanBlueGreen,
+  scanLegacy,
+  scanInternal,
+  analyzeGitHubActions,
+  DEPLOY_METHODS
+} from './scan.js';
+
+// Pre-deploy scan module
+export { fullPreDeployScan } from './pre-deploy-scan.js';
+
+// Migrate module - Project migration
+export { migrate } from './migrate.js';
+
+// Init module - Project initialization
+export { initWorkflow } from './init.js';
+
+// Resource scanner module
+export { scanProjectResources } from './resource-scanner.js';
+
+// Templates module - Project configuration templates
+export {
+  generateProjectClaudeMd,
+  generateDeploymentRules
+} from './templates.js';
+
+// Services module - Service management workflows
+export {
+  addResourceWorkflow,
+  addServiceWorkflow,
+  fixNetworkWorkflow
+} from './services.js';
+
+// Sync module - Push workflow changes to server
+export { syncWorkflow } from './sync.js';
 
 // GitHub Actions CI/CD workflow generator
 export { generateGitHubActionsWorkflow } from './github-actions.js';
@@ -59,5 +100,9 @@ export {
 // Environment file generators
 export {
   generateServerEnvContent,
-  generateLocalEnvContent
+  generateLocalEnvContent,
+  generateEnvTemplate,
+  generateLocalEnvForDev,
+  createServerEnvFiles,
+  mergeEnvFiles
 } from './env-generator.js';

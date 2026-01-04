@@ -2,9 +2,9 @@
  * GitHub Actions Workflow Generator
  *
  * Generates CI/CD workflow files for GitHub Actions
- * Supports two deploy methods:
- * - SSH: Admin용 (appleboy/ssh-action)
- * - API: Developer용 (MCP API with CODEB_API_KEY)
+ * Deploy method:
+ * - API: MCP API (기본값, 권장) - CODEB_API_KEY 사용
+ * - SSH: Admin 전용 (비권장) - SSH_PRIVATE_KEY 사용
  */
 
 import { getServerHost, getServerUser, getCliVersion } from '../../lib/config.js';
@@ -31,8 +31,8 @@ export function generateGitHubActionsWorkflow(config) {
     useDatabase = true,
     useRedis = false,
     baseDomain = 'codeb.kr',
-    // Deploy method: 'ssh' (Admin) or 'api' (Developer)
-    deployMethod = 'ssh'
+    // Deploy method: 'api' (기본값, MCP API) or 'ssh' (Admin 전용)
+    deployMethod = 'api'
   } = config;
 
   // Common build job

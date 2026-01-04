@@ -235,6 +235,57 @@ we domain setup myapp.codeb.dev --ssl
 
 ---
 
+## Deployment Method (v3.2.3+)
+
+### ✅ MCP API (기본값, 권장)
+
+**모든 배포는 MCP API를 통해 진행합니다.**
+
+```yaml
+# GitHub Actions - deploy.yml
+# Deploy: API (Developer - CODEB_API_KEY)
+
+- name: Deploy via CodeB API
+  run: |
+    curl -sf -X POST "https://app.codeb.kr/api/deploy" \
+      -H "Authorization: Bearer ${{ secrets.CODEB_API_KEY }}" \
+      -H "Content-Type: application/json" \
+      -d '{"project": "myapp", "environment": "production", ...}'
+```
+
+**필요한 GitHub Secrets:**
+- `CODEB_API_KEY`: MCP API 배포 키 (app.codeb.kr/settings에서 발급)
+- `GHCR_PAT`: GitHub Container Registry 토큰
+
+### ❌ SSH Deploy (Admin 전용)
+
+SSH 배포는 **Admin만** 사용 가능합니다. 일반 개발자는 사용하지 마세요.
+
+```bash
+# SSH 배포가 감지되면 경고 표시
+we workflow scan myapp
+# ⚠️ SSH deploy detected (Admin only) - run "we workflow migrate" for MCP API
+```
+
+**배포 플로우:**
+```
+Developer: Git Push → GitHub Actions → Build → ghcr.io → MCP API → Deploy
+Admin:     Git Push → GitHub Actions → Build → ghcr.io → SSH Direct → Deploy
+```
+
+### 마이그레이션
+
+기존 SSH 배포 프로젝트를 MCP API로 전환:
+
+```bash
+we workflow migrate myapp
+# 1. GitHub Actions를 MCP API 방식으로 업데이트
+# 2. CODEB_API_KEY 시크릿 등록 안내
+# 3. SSH 시크릿 제거 안내 (선택)
+```
+
+---
+
 ## Version Management (Critical)
 
 **버전은 반드시 한 곳에서 관리합니다.**
