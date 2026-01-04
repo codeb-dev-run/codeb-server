@@ -58,57 +58,32 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            # Login to GHCR
-            echo "${{ secrets.GHCR_PAT }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Deploy via CodeB MCP API
+        run: |
+          # Deploy using MCP API (no SSH required)
+          RESPONSE=$(curl -sf -X POST "https://app.codeb.kr/api/tool" \
+            -H "X-API-Key: ${{ secrets.CODEB_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "tool": "deploy",
+              "params": {
+                "project": "codeb-mcp-api",
+                "image": "ghcr.io/codeblabdev-max/codeb-mcp-api:latest",
+                "environment": "production"
+              }
+            }')
 
-            # Pull latest image
-            podman pull ghcr.io/codeblabdev-max/codeb-mcp-api:latest
+          echo "Deploy Response: $RESPONSE"
 
-            # Restart Quadlet service
-            if systemctl is-active --quiet codeb-mcp-api.service; then
-              systemctl restart codeb-mcp-api.service
-            else
-              # Copy Quadlet file if not exists
-              if [ ! -f /etc/containers/systemd/codeb-mcp-api.container ]; then
-                cat > /etc/containers/systemd/codeb-mcp-api.container << 'EOF'
-            [Unit]
-            Description=CodeB MCP HTTP API Server
-            After=network-online.target
+          # Check if deployment was successful
+          if echo "$RESPONSE" | grep -q '"success":true'; then
+            echo "✅ Deployment successful!"
+          else
+            echo "❌ Deployment failed"
+            exit 1
+          fi
 
-            [Container]
-            ContainerName=codeb-mcp-api
-            Image=ghcr.io/codeblabdev-max/codeb-mcp-api:latest
-            PublishPort=9100:9100
-            Environment=NODE_ENV=production
-            Environment=MCP_HTTP_PORT=9100
-            Environment=API_KEYS_PATH=/config/api-keys.json
-            Volume=/opt/codeb/config:/config:ro
-            Volume=/root/.ssh:/root/.ssh:ro
-            Network=codeb-main
-            HealthCmd=curl -sf http://localhost:9100/api/health || exit 1
-            HealthInterval=30s
-            AutoUpdate=registry
-
-            [Service]
-            Restart=always
-
-            [Install]
-            WantedBy=multi-user.target
-            EOF
-                systemctl daemon-reload
-              fi
-              systemctl start codeb-mcp-api.service
-            fi
-
-            # Health check
-            sleep 5
-            curl -sf http://localhost:9100/api/health || echo "Warning: Health check failed"
-
-            echo "Deployment complete!"
+      - name: Health Check
+        run: |
+          sleep 5
+          curl -sf "https://app.codeb.kr/api/health" || echo "Warning: Health check failed"

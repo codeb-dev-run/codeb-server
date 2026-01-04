@@ -109,7 +109,7 @@ function checkPermission(role, tool) {
       // 프로젝트 관리
       'create_project', 'list_projects', 'get_project',
       // SSOT 조회
-      'ssot_get', 'ssot_get_project', 'ssot_list_projects',
+      'ssot_get', 'ssot_get_project', 'ssot_list_projects', 'ssot_status',
       // 모니터링
       'full_health_check', 'analyze_server', 'check_domain_status',
       // ENV 관리 (파일 기반)
@@ -122,7 +122,7 @@ function checkPermission(role, tool) {
       'api_access_stats', 'api_active_users', 'api_keys_list',
     ],
     view: [
-      'ssot_get', 'ssot_get_project', 'ssot_list_projects',
+      'ssot_get', 'ssot_get_project', 'ssot_list_projects', 'ssot_status',
       'full_health_check', 'list_projects', 'get_project',
       'env_scan', 'env_backups',
       'domain_status', 'domain_list',
