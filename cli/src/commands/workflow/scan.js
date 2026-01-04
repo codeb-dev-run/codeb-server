@@ -168,6 +168,137 @@ const DEPLOY_METHODS = {
 };
 
 // ============================================================================
+// SSOT Sync Check
+// ============================================================================
+
+/**
+ * Check SSOT synchronization status between local project and server
+ * @param {string} projectName - Project name
+ * @returns {Promise<Object>} SSOT sync status
+ */
+export async function checkSsotSync(projectName) {
+  const result = {
+    connected: false,
+    projectRegistered: false,
+    serverData: null,
+    localConfig: null,
+    issues: [],
+    recommendations: []
+  };
+
+  // Try to get SSOT data from server
+  try {
+    const ssotData = await ssotClient.getProject(projectName);
+
+    if (ssotData && !ssotData.error) {
+      result.connected = true;
+      result.projectRegistered = true;
+      result.serverData = {
+        name: ssotData.name || projectName,
+        port: ssotData.port,
+        domain: ssotData.domain,
+        environment: ssotData.environment,
+        status: ssotData.status,
+        slots: ssotData.slots
+      };
+    } else if (ssotData?.error) {
+      result.connected = true;
+      result.projectRegistered = false;
+      result.issues.push(`프로젝트가 SSOT에 등록되지 않음: ${projectName}`);
+      result.recommendations.push('we workflow init으로 프로젝트 등록 필요');
+    }
+  } catch (error) {
+    // Try direct API call
+    try {
+      const health = await mcpClient.callTool('health_check', {});
+      if (health?.success) {
+        result.connected = true;
+
+        // Try to get project from SSOT
+        const ssot = await mcpClient.callTool('ssot_get', {});
+        if (ssot?.projects?.[projectName]) {
+          result.projectRegistered = true;
+          result.serverData = ssot.projects[projectName];
+        } else {
+          result.projectRegistered = false;
+          result.issues.push(`프로젝트가 SSOT에 등록되지 않음: ${projectName}`);
+          result.recommendations.push('we workflow init으로 프로젝트 등록 필요');
+        }
+      }
+    } catch {
+      result.issues.push('MCP API 서버 연결 실패');
+      result.recommendations.push('we health로 서버 상태 확인');
+    }
+  }
+
+  // Read local quadlet files to compare
+  const quadletDir = join(process.cwd(), 'quadlet');
+  if (existsSync(quadletDir)) {
+    try {
+      const files = readdirSync(quadletDir).filter(f => f.endsWith('.container'));
+      const localPorts = [];
+
+      for (const file of files) {
+        const content = await readFile(join(quadletDir, file), 'utf-8');
+        const portMatch = content.match(/PublishPort=(\d+):/);
+        if (portMatch) {
+          localPorts.push({ file, port: parseInt(portMatch[1]) });
+        }
+      }
+
+      result.localConfig = { quadletFiles: files, ports: localPorts };
+
+      // Compare with server
+      if (result.serverData?.port && localPorts.length > 0) {
+        const serverPort = result.serverData.port;
+        const localMainPort = localPorts.find(p => !p.file.includes('staging'))?.port;
+
+        if (localMainPort && localMainPort !== serverPort) {
+          result.issues.push(`포트 불일치: 로컬(${localMainPort}) vs 서버(${serverPort})`);
+          result.recommendations.push('we ssot sync로 동기화 필요');
+        }
+      }
+    } catch {
+      // Ignore read errors
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Get full SSOT status summary
+ * @returns {Promise<Object>} SSOT status
+ */
+export async function getSsotStatus() {
+  const result = {
+    connected: false,
+    version: null,
+    projectCount: 0,
+    projects: [],
+    error: null
+  };
+
+  try {
+    const health = await mcpClient.callTool('health_check', {});
+    if (health?.success) {
+      result.connected = true;
+      result.version = health.version;
+
+      const ssot = await mcpClient.callTool('ssot_get', {});
+      if (ssot?.projects) {
+        result.projects = Object.keys(ssot.projects);
+        result.projectCount = result.projects.length;
+      }
+    }
+  } catch (error) {
+    result.error = error.message;
+  }
+
+  return result;
+}
+
+// ============================================================================
 // CLAUDE.md Version Check
 // ============================================================================
 

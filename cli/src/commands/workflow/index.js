@@ -31,6 +31,8 @@ export {
   checkMcpConnection,
   promptForApiKey,
   compareVersions,
+  checkSsotSync,
+  getSsotStatus,
   DEPLOY_METHODS
 } from './scan.js';
 
