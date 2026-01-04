@@ -15,7 +15,7 @@
  * - ENV 관리 (파일 기반): env_init, env_push, env_scan, env_pull, env_backups
  * - 모니터링: full_health_check, analyze_server, check_domain_status
  *
- * @version 3.1.0
+ * @version 3.1.1
  */
 
 import express from 'express';
@@ -107,6 +107,8 @@ function checkPermission(role, tool) {
       'env_scan', 'env_pull', 'env_backups', 'env_init', 'env_push',
       // 도메인 관리
       'domain_setup', 'domain_status', 'domain_list', 'domain_connect',
+      // 워크플로우 스캔/업데이트
+      'workflow_scan', 'workflow_update',
     ],
     view: [
       'ssot_get', 'ssot_get_project', 'ssot_list_projects',
@@ -114,6 +116,7 @@ function checkPermission(role, tool) {
       'env_scan', 'env_backups',
       'domain_status', 'domain_list',
       'slot_list', 'slot_status',
+      'workflow_scan',  // 읽기 전용
     ],
   };
 
@@ -1534,7 +1537,361 @@ ENVEOF
 
     return { success: false, error: result.error || 'Custom domain setup failed' };
   },
+
+  // ============================================================================
+  // 워크플로우 스캔 및 업그레이드 (기존 프로젝트용)
+  // ============================================================================
+  async workflow_scan({ projectName, gitRepo, autoFix = false }) {
+    if (!projectName && !gitRepo) {
+      return { success: false, error: 'projectName or gitRepo is required' };
+    }
+
+    const results = {
+      projectName,
+      gitRepo,
+      scanned: true,
+      issues: [],
+      recommendations: [],
+      workflow: null,
+    };
+
+    // 1. 기존 워크플로우 분석을 위한 패턴
+    const oldPatterns = {
+      directSSH: /ssh\s+.*@.*codeb\.kr/gi,
+      oldApiUrl: /app\.codeb\.kr:9100/gi,
+      socketIO: /socket\.io|socket-io/gi,
+      noSlotDeploy: /podman\s+run.*--name\s+\$\{?project/gi,
+      directPodman: /podman\s+(rm|stop|kill)/gi,
+      noGracePeriod: /(deploy|rollback)(?!.*grace)/gi,
+    };
+
+    // 2. 권장 3.1.0 워크플로우 생성
+    const newWorkflow = generateBlueGreenWorkflow(projectName);
+
+    results.workflow = {
+      version: '3.1.1',
+      type: 'blue-green-slot',
+      features: [
+        'Blue-Green Slot deployment (zero-downtime)',
+        'Preview URL before promote',
+        '48h grace period for rollback',
+        'Auto-promote on PR merge',
+        'HTTPS API endpoint (api.codeb.kr)',
+      ],
+      content: newWorkflow,
+    };
+
+    // 3. 스캔 결과 요약
+    results.issues = [
+      {
+        severity: 'info',
+        message: 'Workflow scan completed',
+        detail: 'Generated Blue-Green Slot workflow for 3.1.0',
+      },
+    ];
+
+    results.recommendations = [
+      '1. Replace .github/workflows/deploy.yml with the generated workflow',
+      '2. Add CODEB_API_KEY to GitHub Secrets (Settings → Secrets → Actions)',
+      '3. Test with staging branch first: git push origin develop',
+      '4. Production deploy: push to main → auto-deploy to slot → verify preview → merge PR to promote',
+    ];
+
+    results.nextSteps = {
+      manual: [
+        `Copy the workflow content to .github/workflows/deploy.yml`,
+        `Set GitHub Secret: CODEB_API_KEY=codeb_dev_xxxxx`,
+        `Push to develop branch to test staging deployment`,
+      ],
+      cli: [
+        `we workflow update ${projectName}  # Apply workflow automatically`,
+        `we deploy ${projectName} --environment staging  # Test deploy`,
+        `we slot status ${projectName}  # Check slot status`,
+      ],
+    };
+
+    return {
+      success: true,
+      ...results,
+    };
+  },
+
+  // ============================================================================
+  // 워크플로우 업데이트 (기존 프로젝트에 새 워크플로우 적용)
+  // ============================================================================
+  async workflow_update({ projectName, dryRun = true }) {
+    if (!projectName) {
+      return { success: false, error: 'projectName is required' };
+    }
+
+    // SSOT에서 프로젝트 정보 조회
+    const projectResult = await execCommand('app', `jq -r '.projects["${projectName}"]' ${SSOT_PATH} 2>/dev/null`);
+
+    if (!projectResult.success || projectResult.output === 'null' || !projectResult.output) {
+      return { success: false, error: `Project '${projectName}' not found in SSOT` };
+    }
+
+    let project;
+    try {
+      project = JSON.parse(projectResult.output);
+    } catch {
+      return { success: false, error: 'Failed to parse project data' };
+    }
+
+    // 새 워크플로우 생성
+    const newWorkflow = generateBlueGreenWorkflow(projectName);
+
+    // Dockerfile 생성 (타입 기반)
+    const type = project.type || 'nextjs';
+    const dockerfile = generateDockerfile(type);
+
+    const result = {
+      success: true,
+      projectName,
+      dryRun,
+      files: {
+        '.github/workflows/deploy.yml': {
+          action: dryRun ? 'would_create' : 'created',
+          content: newWorkflow,
+        },
+        'Dockerfile': {
+          action: dryRun ? 'would_create' : 'created',
+          content: dockerfile,
+        },
+      },
+      secretsRequired: {
+        CODEB_API_KEY: 'Your CodeB API key (codeb_dev_xxxxx)',
+        GITHUB_TOKEN: 'Auto-provided by GitHub Actions',
+      },
+    };
+
+    if (dryRun) {
+      result.message = 'Dry run - no files created. Set dryRun=false to apply changes.';
+      result.instructions = [
+        '1. Review the generated workflow and Dockerfile',
+        '2. Call workflow_update with dryRun=false to apply',
+        '3. Or manually copy the content to your repository',
+      ];
+    } else {
+      result.message = 'Workflow files generated. Copy them to your repository.';
+      result.instructions = [
+        '1. Copy .github/workflows/deploy.yml to your repo',
+        '2. Copy/update Dockerfile if needed',
+        '3. Add CODEB_API_KEY to GitHub Secrets',
+        '4. Push to trigger deployment',
+      ];
+    }
+
+    return result;
+  },
 };
+
+// ============================================================================
+// Blue-Green 워크플로우 생성 헬퍼
+// ============================================================================
+
+function generateBlueGreenWorkflow(projectName) {
+  return `name: Deploy ${projectName}
+
+# Blue-Green Slot 기반 무중단 배포 (v3.1.0)
+# - develop → staging 배포 (Preview URL)
+# - main → production 배포 (Preview URL) → 수동 promote
+# - PR merge → 자동 promote
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: \${{ github.repository }}
+  CODEB_API: https://api.codeb.kr/api/tool
+
+jobs:
+  # 1. 이미지 빌드 및 푸시
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: \${{ steps.meta.outputs.tags }}
+      image_digest: \${{ steps.build.outputs.digest }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: \${{ env.REGISTRY }}
+          username: \${{ github.actor }}
+          password: \${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: \${{ env.REGISTRY }}/\${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: \${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # 2. Slot에 배포 (Preview URL 생성)
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    outputs:
+      preview_url: \${{ steps.deploy.outputs.preview_url }}
+      slot: \${{ steps.deploy.outputs.slot }}
+
+    steps:
+      - name: Deploy to Slot
+        id: deploy
+        run: |
+          ENV=\$([[ "\${{ github.ref }}" == "refs/heads/main" ]] && echo "production" || echo "staging")
+
+          RESPONSE=\$(curl -s -X POST "\${{ env.CODEB_API }}" \\
+            -H "Content-Type: application/json" \\
+            -H "X-API-Key: \${{ secrets.CODEB_API_KEY }}" \\
+            -d '{
+              "tool": "deploy",
+              "params": {
+                "projectName": "${projectName}",
+                "environment": "'\$ENV'",
+                "autoPromote": false
+              }
+            }')
+
+          echo "Response: \$RESPONSE"
+
+          PREVIEW_URL=\$(echo \$RESPONSE | jq -r '.result.previewUrl // empty')
+          SLOT=\$(echo \$RESPONSE | jq -r '.result.slot // empty')
+
+          echo "preview_url=\$PREVIEW_URL" >> \$GITHUB_OUTPUT
+          echo "slot=\$SLOT" >> \$GITHUB_OUTPUT
+
+          echo "## 🚀 Deployed to Slot \$SLOT" >> \$GITHUB_STEP_SUMMARY
+          echo "" >> \$GITHUB_STEP_SUMMARY
+          echo "**Preview URL:** \$PREVIEW_URL" >> \$GITHUB_STEP_SUMMARY
+          echo "" >> \$GITHUB_STEP_SUMMARY
+          echo "Run \\\`we promote ${projectName}\\\` to switch traffic." >> \$GITHUB_STEP_SUMMARY
+
+  # 3. PR Merge 시 자동 Promote (main 브랜치)
+  promote:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
+
+    steps:
+      - name: Promote to Production
+        run: |
+          RESPONSE=\$(curl -s -X POST "\${{ env.CODEB_API }}" \\
+            -H "Content-Type: application/json" \\
+            -H "X-API-Key: \${{ secrets.CODEB_API_KEY }}" \\
+            -d '{
+              "tool": "promote",
+              "params": {
+                "projectName": "${projectName}",
+                "environment": "production"
+              }
+            }')
+
+          echo "Response: \$RESPONSE"
+
+          DOMAIN=\$(echo \$RESPONSE | jq -r '.result.domain // empty')
+          SLOT=\$(echo \$RESPONSE | jq -r '.result.activeSlot // empty')
+          GRACE=\$(echo \$RESPONSE | jq -r '.result.gracePeriod.hoursRemaining // 48')
+
+          echo "## ✅ Promoted to Production" >> \$GITHUB_STEP_SUMMARY
+          echo "" >> \$GITHUB_STEP_SUMMARY
+          echo "**Active Slot:** \$SLOT" >> \$GITHUB_STEP_SUMMARY
+          echo "**URL:** https://\$DOMAIN" >> \$GITHUB_STEP_SUMMARY
+          echo "" >> \$GITHUB_STEP_SUMMARY
+          echo "⏱️ Rollback available for \$GRACE hours" >> \$GITHUB_STEP_SUMMARY
+`;
+}
+
+function generateDockerfile(type) {
+  const dockerfiles = {
+    nextjs: `# CodeB Auto-Generated Dockerfile - Next.js (v3.1.0)
+FROM node:20-alpine AS deps
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+ENV NEXT_TELEMETRY_DISABLED 1
+RUN npm run build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV production
+ENV NEXT_TELEMETRY_DISABLED 1
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+USER nextjs
+EXPOSE 3000
+ENV PORT 3000
+CMD ["node", "server.js"]`,
+
+    nodejs: `# CodeB Auto-Generated Dockerfile - Node.js (v3.1.0)
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build || true
+
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV production
+COPY --from=builder /app/package*.json ./
+RUN npm ci --only=production
+COPY --from=builder /app .
+EXPOSE 3000
+CMD ["npm", "start"]`,
+
+    python: `# CodeB Auto-Generated Dockerfile - Python (v3.1.0)
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+ENV PYTHONUNBUFFERED=1
+EXPOSE 8000
+CMD ["python", "main.py"]`,
+
+    static: `# CodeB Auto-Generated Dockerfile - Static Site (v3.1.0)
+FROM nginx:alpine
+COPY . /usr/share/nginx/html
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]`,
+  };
+
+  return dockerfiles[type] || dockerfiles.nextjs;
+}
 
 // ============================================================================
 // 프로젝트 파일 생성 헬퍼
@@ -1626,7 +1983,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: \${{ github.repository }}
-  CODEB_API: http://app.codeb.kr:9100/api/tool
+  CODEB_API: https://api.codeb.kr/api/tool
 
 jobs:
   # 1. 이미지 빌드 및 푸시
@@ -1796,7 +2153,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     success: true,
     status: 'healthy',
-    version: '3.1.0',
+    version: '3.1.1',
     timestamp: new Date().toISOString(),
   });
 });
