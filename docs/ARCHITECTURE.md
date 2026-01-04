@@ -1,185 +1,328 @@
-# CodeB Server Architecture
+# System Architecture
 
 ## Overview
 
-CodeB Server는 Node.js 기반의 서버 관리 및 배포 자동화 플랫폼입니다. Vercel/Coolify와 유사한 기능을 제공하며, CLI와 MCP(Model Context Protocol) 서버를 통해 Claude Code와 통합됩니다.
+CodeB Server is a **Vercel-style self-hosted deployment platform** with:
+
+- Blue-Green Slot deployment (zero-downtime)
+- MCP API for Claude Code integration
+- 4-server infrastructure on Vultr
+
+---
 
 ## Tech Stack
 
-| Component | Technology | Version | Purpose |
-|-----------|------------|---------|---------|
-| CLI | Node.js | 20+ | `we` 명령어 인터페이스 |
-| MCP Server | TypeScript | - | Claude Code 통합 |
-| Container Runtime | Podman | 4.x | 컨테이너 관리 |
-| Reverse Proxy | Caddy | 2.x | HTTPS + 리버스 프록시 |
-| DNS Server | PowerDNS | 4.x | DNS 관리 |
-| Service Manager | systemd + Quadlet | - | 컨테이너 서비스화 |
-| CI/CD | GitHub Actions | - | 자동 빌드/배포 |
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| Container Runtime | Podman 4.x | Rootless containers |
+| Reverse Proxy | Caddy 2.x | HTTPS + Auto SSL |
+| DNS | PowerDNS 4.x | Dynamic DNS management |
+| Service Manager | systemd + Quadlet | Container as systemd units |
+| Database | PostgreSQL 15 | Shared database |
+| Cache | Redis 7 | Shared cache |
+| WebSocket | Centrifugo | Real-time communication |
+| CI/CD | GitHub Actions | Build & deploy automation |
+| API | Express.js | MCP HTTP API server |
+
+---
 
 ## Server Infrastructure
 
-### Videopick Account Servers (4대)
+### 4-Server Architecture
 
-| Server | IP | Role | Services |
-|--------|-----|------|----------|
-| App | 158.247.203.55 | Main Control | PowerDNS, Caddy, GitHub Runner, 앱 컨테이너 |
-| Streaming | 141.164.42.213 | Media Services | Video streaming, transcoding |
-| Storage | 64.176.226.119 | Data Storage | S3-compatible storage, backups |
-| Backup | 141.164.37.63 | Backup & Recovery | Automated backups, disaster recovery |
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              INTERNET                                    │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        App Server (158.247.203.55)                       │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
+│  │  PowerDNS   │  │    Caddy    │  │  MCP API    │  │ Containers  │    │
+│  │ (DNS:53)    │  │ (HTTPS:443) │  │ (HTTP:9100) │  │ (4000-4999) │    │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘    │
+└─────────────────────────────────────────────────────────────────────────┘
+        │                                                    │
+        │                                                    │
+        ▼                                                    ▼
+┌───────────────────────┐                    ┌───────────────────────┐
+│ Storage (64.176.226.119)│                    │ Streaming (141.164.42.213)│
+│  ┌─────────────────┐  │                    │  ┌─────────────────┐  │
+│  │  PostgreSQL     │  │                    │  │   Centrifugo    │  │
+│  │  (port 5432)    │  │                    │  │   (port 8000)   │  │
+│  ├─────────────────┤  │                    │  └─────────────────┘  │
+│  │     Redis       │  │                    └───────────────────────┘
+│  │  (port 6379)    │  │
+│  └─────────────────┘  │                    ┌───────────────────────┐
+└───────────────────────┘                    │ Backup (141.164.37.63)  │
+                                             │  ┌─────────────────┐  │
+                                             │  │   ENV Backup    │  │
+                                             │  │   Monitoring    │  │
+                                             │  └─────────────────┘  │
+                                             └───────────────────────┘
+```
 
-### DNS Configuration
+### Server Roles
 
-- **ns1.one-q.xyz** → 158.247.203.55
-- **ns2.one-q.xyz** → 158.247.203.55
-- ***.one-q.xyz** → 158.247.203.55 (Wildcard)
+| Server | IP | Domain | Services |
+|--------|-----|--------|----------|
+| **App** | 158.247.203.55 | app.codeb.kr | Containers, Caddy, PowerDNS, MCP API |
+| **Storage** | 64.176.226.119 | db.codeb.kr | PostgreSQL, Redis |
+| **Streaming** | 141.164.42.213 | ws.codeb.kr | Centrifugo (WebSocket) |
+| **Backup** | 141.164.37.63 | backup.codeb.kr | ENV backup, Monitoring |
 
-## Project Structure
+---
+
+## Blue-Green Slot System
+
+### Concept
+
+Each project has **two slots** (blue/green). Only one is active at a time.
+
+```
+Project: myapp
+Environment: production
+
+┌─────────────────────────────────────────────┐
+│              Caddy Config                   │
+│  myapp.codeb.kr → localhost:4000 (blue)     │
+└─────────────────────────────────────────────┘
+                      │
+         ┌────────────┴────────────┐
+         │                         │
+         ▼                         ▼
+   ┌──────────┐              ┌──────────┐
+   │  BLUE    │ ◀── Active   │  GREEN   │
+   │ :4000    │              │ :4001    │
+   │ Running  │              │ Standby  │
+   └──────────┘              └──────────┘
+```
+
+### State Transitions
+
+```
+EMPTY → deploy → DEPLOYED → promote → ACTIVE
+                                ↓
+                         (previous slot)
+                                ↓
+                          GRACE-PERIOD → cleanup → EMPTY
+                                ↓
+                             rollback
+                                ↓
+                              ACTIVE
+```
+
+### Data Files
+
+| File | Location | Purpose |
+|------|----------|---------|
+| SSOT | `/opt/codeb/registry/ssot.json` | Project registry |
+| Slots | `/opt/codeb/registry/slots.json` | Slot state |
+| ENV | `/opt/codeb/env-backup/{project}/{env}/` | Environment files |
+| Caddy | `/etc/caddy/sites/{project}-{env}.caddy` | Reverse proxy config |
+
+---
+
+## Port Allocation
+
+### Port Ranges
+
+| Environment | App Ports | Blue | Green |
+|-------------|-----------|------|-------|
+| Production | 4000-4499 | Base | Base+1 |
+| Staging | 4500-4999 | Base | Base+1 |
+
+### Port Calculation
+
+```javascript
+// Hash-based port allocation
+const hash = projectName.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+const basePort = environment === 'production' ? 4000 + (hash % 500) : 4500 + (hash % 500);
+
+// Slot ports
+const bluePort = basePort;      // e.g., 4050
+const greenPort = basePort + 1; // e.g., 4051
+```
+
+---
+
+## Request Flow
+
+### Deploy Request
+
+```
+1. Client → POST /api/tool {tool: "deploy"}
+2. API → Validate permissions
+3. API → Load slots.json
+4. API → Determine target slot (opposite of active)
+5. API → SSH to app server
+6. API → podman pull + podman run
+7. API → Health check
+8. API → Update slots.json
+9. API → Return preview URL
+```
+
+### Promote Request
+
+```
+1. Client → POST /api/tool {tool: "promote"}
+2. API → Load slots.json
+3. API → Generate Caddy config
+4. API → Write to /etc/caddy/sites/
+5. API → systemctl reload caddy
+6. API → Update slots.json (active slot, grace period)
+7. API → Return domain URL
+```
+
+---
+
+## Database Architecture
+
+### Shared Database
+
+All projects share PostgreSQL on Storage server.
+
+```
+PostgreSQL (db.codeb.kr:5432)
+├── myapp (database)
+├── another-app (database)
+└── ...
+
+Redis (db.codeb.kr:6379)
+├── myapp: (prefix)
+├── another-app: (prefix)
+└── ...
+```
+
+### Migration Strategy
+
+**Expand-Contract Pattern** for backward compatibility:
+
+```
+Phase 1: ADD COLUMN (new column with default)
+   ↓
+Phase 2: Deploy v2 (uses new column)
+   ↓
+Phase 3: Grace Period (v1 still works)
+   ↓
+Phase 4: DROP COLUMN (after grace period)
+```
+
+---
+
+## Security Model
+
+### Access Control
+
+| Role | SSH | API | Deploy | ENV | Admin |
+|------|-----|-----|--------|-----|-------|
+| Admin | Yes | Yes | Yes | Yes | Yes |
+| Developer | No | Yes | Yes | No | No |
+| Viewer | No | Yes | No | No | No |
+
+### API Key Format
+
+```
+codeb_{role}_{random_token}
+
+Examples:
+- codeb_admin_abc123xyz
+- codeb_dev_def456uvw
+- codeb_view_ghi789rst
+```
+
+### Protected ENV Variables
+
+These are preserved from `master.env` even if overwritten:
+
+- `DATABASE_URL`
+- `POSTGRES_USER`
+- `POSTGRES_PASSWORD`
+- `REDIS_URL`
+
+---
+
+## File Structure
 
 ```
 codeb-server/
-├── cli/                          # we CLI Tool
-│   ├── bin/we.js                 # Entry point
-│   └── src/
-│       ├── commands/
-│       │   ├── deploy.js         # 배포 명령
-│       │   ├── domain.js         # 도메인 관리
-│       │   ├── env.js            # 환경변수 관리
-│       │   ├── health.js         # 헬스체크
-│       │   ├── workflow.js       # CI/CD 워크플로우
-│       │   ├── ssh.js            # SSH 키 관리
-│       │   ├── ssot.js           # SSOT 관리
-│       │   └── ...
-│       └── lib/
-│           ├── mcp-client.js     # MCP 서버 연결
-│           ├── ssot-client.js    # SSOT 클라이언트
-│           └── config.js         # 설정 관리
+├── api/                        # MCP HTTP API Server
+│   ├── mcp-http-api.js         # Main API server
+│   ├── Dockerfile
+│   └── quadlet/                # systemd Quadlet files
 │
-├── codeb-deploy-system/
-│   └── mcp-server/               # MCP Server (TypeScript)
-│       └── src/
-│           ├── index.ts          # Entry point
-│           ├── tools/            # MCP Tools
-│           │   ├── deploy.ts
-│           │   ├── domain.ts
-│           │   ├── port.ts
-│           │   └── ssot.ts
-│           └── lib/
-│               ├── ssot-manager.ts
-│               ├── port-manifest.ts
-│               └── port-registry.ts
+├── cli/                        # we CLI Tool
+│   ├── bin/we.js               # Entry point
+│   ├── commands/               # CLI commands
+│   └── src/lib/                # Shared libraries
 │
-├── infrastructure/
-│   └── terraform/                # Vultr 서버 프로비저닝
+├── server-scripts/             # Server-side scripts
+│   ├── domain-manager.js       # PowerDNS + Caddy automation
+│   └── deploy-domain-manager.sh
 │
-└── docs/                         # 문서
+├── security/                   # Security daemon
+│   ├── daemon/                 # Protection daemon
+│   └── monitor/                # File/container watchdog
+│
+├── web-ui/                     # Dashboard (Next.js)
+│
+└── docs/                       # Documentation
 ```
 
-## Core Components
+---
 
-### 1. we CLI
+## Container Lifecycle
 
-터미널 기반 서버 관리 도구:
+### Container Naming
+
+```
+{project}-{environment}-{slot}
+
+Examples:
+- myapp-production-blue
+- myapp-production-green
+- myapp-staging-blue
+```
+
+### Labels
 
 ```bash
-we deploy <project>           # 프로젝트 배포
-we domain setup <domain>      # 도메인 설정
-we env set <key>=<value>      # 환경변수 설정
-we workflow init              # CI/CD 초기화
-we health check               # 헬스체크
-we ssot status                # SSOT 상태 확인
+podman run \
+  -l "codeb.project=myapp" \
+  -l "codeb.environment=production" \
+  -l "codeb.slot=blue" \
+  ...
 ```
 
-### 2. MCP Server
+### Network
 
-Claude Code와 통합되는 Model Context Protocol 서버:
+All containers join `codeb-main` network:
 
-- `mcp__codeb-deploy__deploy` - 배포 실행
-- `mcp__codeb-deploy__setup_domain` - 도메인 설정
-- `mcp__codeb-deploy__ssot_*` - SSOT 관리
-- `mcp__codeb-deploy__port_*` - 포트 관리
-
-### 3. SSOT (Single Source of Truth)
-
-프로젝트, 포트, 도메인 정보의 단일 진실 공급원:
-
-```json
-{
-  "projects": {
-    "my-app": {
-      "type": "nextjs",
-      "environments": {
-        "staging": {
-          "ports": { "app": 3001, "db": 15433 },
-          "domain": "my-app-staging.one-q.xyz"
-        }
-      }
-    }
-  }
-}
+```bash
+podman network create codeb-main
 ```
 
-## Port Allocation Strategy
+---
 
-### Port Ranges by Environment
+## Monitoring & Logging
 
-| Environment | App Ports | DB Ports | Redis Ports |
-|-------------|-----------|----------|-------------|
-| Staging | 3000-3499 | 15432-15499 | 16379-16399 |
-| Production | 4000-4499 | 25432-25499 | 26379-26399 |
-| Preview | 5000-5999 | - | - |
+### Current Setup
 
-### GitOps Port Management
+| Component | Method | Location |
+|-----------|--------|----------|
+| Containers | podman logs | journalctl |
+| Caddy | Access logs | /var/log/caddy/ |
+| API | Console | journalctl -u codeb-mcp-api |
+| Audit | SQLite | /var/lib/codeb/audit.db |
 
-1. 포트 매니페스트에서 자동 할당
-2. 서버 실제 상태와 동기화
-3. 충돌 감지 및 드리프트 관리
+### Health Checks
 
-## Deployment Flow
+```bash
+# API health
+curl http://app.codeb.kr:9100/api/health
 
+# Full server check
+curl -X POST http://app.codeb.kr:9100/api/tool \
+  -d '{"tool": "full_health_check"}'
 ```
-1. Project Analysis
-   └── package.json 분석, Prisma 감지
-
-2. Infrastructure Setup
-   ├── 포트 자동 할당 (SSOT)
-   ├── PostgreSQL 컨테이너 (Podman)
-   └── Redis 컨테이너 (선택)
-
-3. Container Deployment
-   ├── GitHub Actions 빌드
-   ├── ghcr.io 이미지 푸시
-   └── Quadlet 서비스 배포
-
-4. Domain Configuration
-   ├── PowerDNS A 레코드
-   ├── Caddy 리버스 프록시
-   └── 자동 SSL (Let's Encrypt)
-
-5. Health Check
-   └── HTTP 헬스체크 + 자동 롤백
-```
-
-## Comparison with Other Platforms
-
-| Feature | CodeB | Coolify | Vercel |
-|---------|-------|---------|--------|
-| Container | Podman | Docker | Proprietary |
-| Proxy | Caddy | Traefik | Proprietary |
-| DNS | PowerDNS | External | Proprietary |
-| CLI | ✅ `we` | ❌ | ✅ `vercel` |
-| Self-hosted | ✅ | ✅ | ❌ |
-| MCP Integration | ✅ | ❌ | ❌ |
-
-## Security
-
-### Protected Operations
-
-- `force=true` 필수: 프로젝트 삭제, 볼륨 삭제
-- 보호된 볼륨: `protected:true` 레이블
-- 환경변수 암호화 저장
-
-### Protected Paths
-
-- `/opt/codeb/` - 애플리케이션 데이터
-- `/var/lib/containers/` - Podman 볼륨
-- `/etc/caddy/` - Caddy 설정
