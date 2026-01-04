@@ -47,10 +47,45 @@ update_package "$ROOT_DIR/api/package.json"
 # Root package.json (if exists)
 update_package "$ROOT_DIR/package.json"
 
+# install.sh 배너 버전 업데이트
+INSTALL_SH="$ROOT_DIR/cli/install.sh"
+if [ -f "$INSTALL_SH" ]; then
+  sed -i.bak "s/we-cli v[0-9]*\.[0-9]*\.[0-9]*/we-cli v$VERSION/" "$INSTALL_SH" && rm -f "$INSTALL_SH.bak"
+  echo "  Updated: $INSTALL_SH"
+fi
+
+# CLAUDE.md 버전 헤더 업데이트 (프로젝트)
+CLAUDE_MD="$ROOT_DIR/CLAUDE.md"
+if [ -f "$CLAUDE_MD" ]; then
+  # 첫 줄에 버전이 없으면 추가, 있으면 업데이트
+  if head -1 "$CLAUDE_MD" | grep -q "^# CLAUDE.md.*v[0-9]"; then
+    sed -i.bak "1s/v[0-9]*\.[0-9]*\.[0-9]*/v$VERSION/" "$CLAUDE_MD" && rm -f "$CLAUDE_MD.bak"
+  else
+    sed -i.bak "1s/^# CLAUDE.md.*$/# CLAUDE.md v$VERSION - CodeB Project Rules/" "$CLAUDE_MD" && rm -f "$CLAUDE_MD.bak"
+  fi
+  echo "  Updated: $CLAUDE_MD"
+fi
+
+# ~/.claude/CLAUDE.md 도 동기화
+HOME_CLAUDE_MD="$HOME/.claude/CLAUDE.md"
+if [ -f "$HOME_CLAUDE_MD" ]; then
+  cp "$CLAUDE_MD" "$HOME_CLAUDE_MD"
+  echo "  Synced: $HOME_CLAUDE_MD"
+fi
+
 echo ""
-echo "Version sync complete: $VERSION"
+echo "✅ Version sync complete: $VERSION"
+echo ""
+echo "Files updated:"
+echo "  - VERSION"
+echo "  - cli/package.json"
+echo "  - api/package.json"
+echo "  - cli/install.sh"
+echo "  - CLAUDE.md"
+echo "  - ~/.claude/CLAUDE.md"
 echo ""
 echo "Next steps:"
 echo "  1. cd cli && npm publish"
 echo "  2. scp api/* to server"
-echo "  3. git commit -m 'chore: bump version to $VERSION'"
+echo "  3. git add . && git commit -m 'chore: bump version to $VERSION'"
+echo "  4. git push origin main"
