@@ -15,7 +15,7 @@
  * - ENV 관리 (파일 기반): env_init, env_push, env_scan, env_pull, env_backups
  * - 모니터링: full_health_check, analyze_server, check_domain_status
  *
- * @version 2.0.0
+ * @version 3.1.0
  */
 
 import express from 'express';
@@ -1796,7 +1796,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     success: true,
     status: 'healthy',
-    version: '2.0.0',
+    version: '3.1.0',
     timestamp: new Date().toISOString(),
   });
 });
