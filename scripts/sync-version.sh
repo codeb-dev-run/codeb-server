@@ -73,6 +73,13 @@ if [ -f "$HOME_CLAUDE_MD" ]; then
   echo "  Synced: $HOME_CLAUDE_MD"
 fi
 
+# cli/rules/CLAUDE.md 도 동기화 (npm 패키지에 포함됨)
+CLI_CLAUDE_MD="$ROOT_DIR/cli/rules/CLAUDE.md"
+if [ -f "$CLI_CLAUDE_MD" ]; then
+  cp "$CLAUDE_MD" "$CLI_CLAUDE_MD"
+  echo "  Synced: $CLI_CLAUDE_MD"
+fi
+
 echo ""
 echo "✅ Version sync complete: $VERSION"
 echo ""
@@ -83,6 +90,7 @@ echo "  - api/package.json"
 echo "  - cli/install.sh"
 echo "  - CLAUDE.md"
 echo "  - ~/.claude/CLAUDE.md"
+echo "  - cli/rules/CLAUDE.md"
 echo ""
 echo "Next steps:"
 echo "  1. cd cli && npm publish"
