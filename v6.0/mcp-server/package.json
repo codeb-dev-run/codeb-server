@@ -1,10 +1,23 @@
 {
-  "name": "@codeb/mcp-server",
+  "name": "@codeblabdev-max/mcp-server",
   "version": "6.0.0",
   "description": "CodeB v6.0 - Unified HTTP API Server with Blue-Green Deployment",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/codeblabdev-max/codeb-server.git",
+    "directory": "v6.0/mcp-server"
+  },
+  "homepage": "https://github.com/codeblabdev-max/codeb-server#readme",
+  "bugs": {
+    "url": "https://github.com/codeblabdev-max/codeb-server/issues"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
