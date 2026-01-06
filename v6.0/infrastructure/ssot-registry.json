@@ -1,0 +1,138 @@
+{
+  "$schema": "./ssot-registry.schema.json",
+  "version": "6.0.0",
+  "updatedAt": "2026-01-07T06:15:00Z",
+  "servers": {
+    "app": {
+      "id": "n1",
+      "host": "158.247.203.55",
+      "domain": "app.codeb.kr",
+      "role": "application",
+      "services": ["caddy", "podman", "mcp-api"]
+    },
+    "streaming": {
+      "id": "n2",
+      "host": "141.164.42.213",
+      "domain": "ws.codeb.kr",
+      "role": "websocket",
+      "services": ["centrifugo"]
+    },
+    "storage": {
+      "id": "n3",
+      "host": "64.176.226.119",
+      "domain": "db.codeb.kr",
+      "role": "database",
+      "services": ["postgresql", "redis"]
+    },
+    "backup": {
+      "id": "n4",
+      "host": "141.164.37.63",
+      "domain": "backup.codeb.kr",
+      "role": "backup",
+      "services": ["rsync", "prometheus", "grafana"]
+    }
+  },
+  "portRanges": {
+    "system": { "start": 3000, "end": 3499, "description": "시스템 서비스" },
+    "production": { "start": 4000, "end": 4499, "description": "프로덕션 앱" },
+    "staging": { "start": 4500, "end": 4999, "description": "스테이징 앱" },
+    "preview": { "start": 5000, "end": 5499, "description": "프리뷰 배포" },
+    "database": { "start": 5432, "end": 5499, "description": "PostgreSQL" },
+    "redis": { "start": 6379, "end": 6499, "description": "Redis" }
+  },
+  "projects": {
+    "codeb-api": {
+      "name": "codeb-api",
+      "type": "api",
+      "ports": {
+        "production": { "blue": 3200, "green": 3201 }
+      },
+      "domain": "api.codeb.kr",
+      "database": null,
+      "redis": null
+    },
+    "codeb-dashboard": {
+      "name": "codeb-dashboard",
+      "type": "web",
+      "ports": {
+        "production": { "blue": 3100, "green": 3101 }
+      },
+      "domain": "app.codeb.kr",
+      "database": null,
+      "redis": null
+    },
+    "worb": {
+      "name": "worb",
+      "type": "web",
+      "ports": {
+        "production": { "blue": 4000, "green": 4001 },
+        "staging": { "blue": 4500, "green": 4501 }
+      },
+      "domains": ["workb.net", "workb.codeb.kr"],
+      "database": {
+        "name": "worb",
+        "user": "worb_user",
+        "server": "storage"
+      },
+      "redis": {
+        "db": 0,
+        "prefix": "worb:",
+        "server": "storage"
+      }
+    },
+    "w-homepage-react": {
+      "name": "w-homepage-react",
+      "type": "web",
+      "ports": {
+        "production": { "blue": 4002, "green": 4003 }
+      },
+      "domains": ["wdot.kr", "wdot.codeb.kr"],
+      "database": null,
+      "redis": null
+    },
+    "da-rak": {
+      "name": "da-rak",
+      "type": "web",
+      "ports": {
+        "production": { "blue": 4004, "green": 4005 },
+        "staging": { "blue": 4504, "green": 4505 }
+      },
+      "domain": "da-rak.codeb.kr",
+      "database": {
+        "name": "da_rak",
+        "user": "da_rak_user",
+        "server": "app",
+        "port": 5450
+      },
+      "redis": {
+        "db": 1,
+        "prefix": "darak:",
+        "server": "app",
+        "port": 6400
+      }
+    },
+    "lotto-ai": {
+      "name": "lotto-ai",
+      "type": "web",
+      "ports": {
+        "production": { "blue": 4006, "green": 4007 },
+        "staging": { "blue": 4506, "green": 4507 }
+      },
+      "domain": "lotto.codeb.kr",
+      "database": null,
+      "redis": null
+    },
+    "codeb-cms": {
+      "name": "codeb-cms",
+      "type": "web",
+      "ports": {
+        "production": { "blue": 3202, "green": 3203 }
+      },
+      "domain": "cms.codeb.kr",
+      "database": null,
+      "redis": null
+    }
+  },
+  "slots": {},
+  "usedPorts": [3100, 3101, 3200, 3201, 3202, 3203, 4000, 4001, 4002, 4003, 4004, 4005, 4006, 4007, 4500, 4501, 4504, 4505, 4506, 4507, 5432, 5434, 5450, 6379, 6400, 8000, 9101]
+}

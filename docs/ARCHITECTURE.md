@@ -1,5 +1,7 @@
 # System Architecture
 
+> **버전: 6.0.0** | 업데이트: 2026-01-07
+
 ## Overview
 
 CodeB Server is a **Vercel-style self-hosted deployment platform** with:
@@ -7,6 +9,9 @@ CodeB Server is a **Vercel-style self-hosted deployment platform** with:
 - Blue-Green Slot deployment (zero-downtime)
 - MCP API for Claude Code integration
 - 4-server infrastructure on Vultr
+- **실시간 백업** (PostgreSQL WAL + Redis AOF)
+- **서버 마이그레이션 지원**
+- **통합 버전 관리** (version.json)
 
 ---
 
@@ -319,10 +324,84 @@ podman network create codeb-main
 ### Health Checks
 
 ```bash
-# API health
-curl http://app.codeb.kr:9100/api/health
+# API health (v6.0)
+curl https://api.codeb.kr/health
 
 # Full server check
-curl -X POST http://app.codeb.kr:9100/api/tool \
-  -d '{"tool": "full_health_check"}'
+curl -X POST https://api.codeb.kr/api/tool \
+  -H "X-API-Key: $KEY" \
+  -d '{"tool": "health_check"}'
 ```
+
+---
+
+## Backup System (v6.0)
+
+### 실시간 백업 구조
+
+```
+┌─────────────┐                      ┌─────────────┐
+│  Storage    │   WAL 스트리밍        │   Backup    │
+│   Server    │ ────────────────────▶│   Server    │
+│             │   (실시간)            │             │
+│ PostgreSQL  │                      │ WAL Archive │
+│   Redis     │ ────────────────────▶│ RDB + AOF   │
+│             │   매시간 동기화        │             │
+└─────────────┘                      └─────────────┘
+```
+
+### 백업 유형
+
+| 유형 | 방식 | 주기 | 보관 |
+|------|------|------|------|
+| PostgreSQL WAL | 스트리밍 | 실시간 | 7일 |
+| PostgreSQL Dump | pg_dump | 매일 03:00 | 7일 |
+| Redis RDB | BGSAVE | 매시간 | 24시간 |
+| Redis AOF | everysec | 실시간 | 최신 1개 |
+| ENV | 자동 | 변경 시 | 무제한 |
+
+### 복구 명령
+
+```bash
+# ENV 복구
+we env restore myapp --version master
+
+# PostgreSQL 복구 (수동)
+pg_restore -U codeb -d worb -c /backup/worb-2026-01-07.dump
+```
+
+---
+
+## Server Migration (v6.0)
+
+### 무중단 마이그레이션
+
+```bash
+# 1. Dry-run (확인만)
+/opt/codeb/scripts/server-migration.sh SOURCE_IP TARGET_IP --dry-run
+
+# 2. 실제 마이그레이션
+/opt/codeb/scripts/server-migration.sh SOURCE_IP TARGET_IP
+
+# 3. DNS 전환 후 48시간 Grace Period
+```
+
+### 마이그레이션 순서
+
+1. 설정 동기화 (rsync)
+2. PostgreSQL 복제 (pg_basebackup)
+3. Redis 동기화 (rsync)
+4. 컨테이너 시작
+5. 헬스체크
+6. DNS 전환
+7. Grace Period (48시간)
+
+---
+
+## Related Documents
+
+- [v6.0-INFRASTRUCTURE.md](./v6.0-INFRASTRUCTURE.md) - 인프라 가이드
+- [v6.0-BACKUP-SYSTEM.md](./v6.0-BACKUP-SYSTEM.md) - 백업 시스템
+- [DEPLOYMENT.md](./DEPLOYMENT.md) - 배포 가이드
+- [API-REFERENCE.md](./API-REFERENCE.md) - MCP API 레퍼런스
+- [VERSION-MANAGEMENT.md](./VERSION-MANAGEMENT.md) - 버전 관리

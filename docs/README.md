@@ -1,5 +1,7 @@
 # CodeB Server Documentation
 
+> **버전: 6.0.0** | 코드명: Blue-Green | 업데이트: 2026-01-07
+
 ## Quick Navigation
 
 | Document | For | Description |
@@ -9,6 +11,8 @@
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Human | 시스템 아키텍처 |
 | [API-REFERENCE.md](./API-REFERENCE.md) | Human/AI | MCP API 전체 레퍼런스 |
 | [AI-CONTEXT.md](./AI-CONTEXT.md) | AI | Claude Code용 컨텍스트 |
+| **[v6.0-INFRASTRUCTURE.md](./v6.0-INFRASTRUCTURE.md)** | Human | **v6.0 인프라 가이드** |
+| **[v6.0-BACKUP-SYSTEM.md](./v6.0-BACKUP-SYSTEM.md)** | Human | **v6.0 백업 시스템** |
 
 ---
 
@@ -23,6 +27,9 @@
 - **Grace Period**: 48시간 롤백 가능 (컨테이너 재배포 없음)
 - **MCP API**: Claude Code에서 직접 배포/관리
 - **팀 협업**: SSH 없이 API Key로 팀원 배포 가능
+- **실시간 백업**: PostgreSQL WAL + Redis AOF (v6.0)
+- **서버 마이그레이션**: 무중단 서버 이전 지원 (v6.0)
+- **통합 버전 관리**: version.json 중앙 관리 (v6.0)
 
 ### Deployment Flow
 
@@ -57,5 +64,46 @@
 
 ## Version
 
-- **Current**: 3.1.0
+- **Current**: 6.0.0
+- **Codename**: Blue-Green
 - **Changelog**: [../CHANGELOG.md](../CHANGELOG.md)
+
+---
+
+## v6.0 New Features
+
+### 1. 실시간 백업 시스템
+
+```bash
+# PostgreSQL WAL 아카이빙
+wal_level = replica
+archive_mode = on
+
+# Redis AOF
+appendonly yes
+appendfsync everysec
+```
+
+### 2. 서버 마이그레이션
+
+```bash
+# 무중단 서버 이전
+/opt/codeb/scripts/server-migration.sh SOURCE_IP TARGET_IP
+```
+
+### 3. 통합 버전 관리
+
+```bash
+# version.json 기반 전체 버전 동기화
+npm run version:sync
+npm run version:bump patch
+```
+
+### 4. GitHub Actions 배포 연동
+
+```yaml
+# MCP API로 직접 배포
+curl -X POST "https://api.codeb.kr/api/tool" \
+  -H "X-API-Key: $CODEB_API_KEY" \
+  -d '{"tool": "deploy_project", "params": {...}}'
+```
