@@ -75,4 +75,4 @@ jobs:
         working-directory: ./v6.0/cli
         run: npm publish
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GHCR_PAT }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
