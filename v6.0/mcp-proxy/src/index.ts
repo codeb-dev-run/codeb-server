@@ -23,16 +23,58 @@ import {
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 
+import { readFileSync, existsSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
+
 // ============================================================================
 // Configuration
 // ============================================================================
 
+// Load API key from ~/.codeb/.env if not set in environment
+function loadApiKey(): string {
+  // First check environment variable
+  if (process.env.CODEB_API_KEY) {
+    return process.env.CODEB_API_KEY;
+  }
+
+  // Then check ~/.codeb/.env file
+  const envPath = join(homedir(), '.codeb', '.env');
+  if (existsSync(envPath)) {
+    try {
+      const content = readFileSync(envPath, 'utf-8');
+      const match = content.match(/^CODEB_API_KEY=(.+)$/m);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    } catch {
+      // Ignore read errors
+    }
+  }
+
+  return '';
+}
+
 const API_URL = process.env.CODEB_API_URL || 'https://api.codeb.kr';
-const API_KEY = process.env.CODEB_API_KEY || '';
+const API_KEY = loadApiKey();
 
 if (!API_KEY) {
-  console.error('ERROR: CODEB_API_KEY environment variable is required');
-  console.error('Get your API key from: https://codeb.kr/settings/tokens');
+  console.error('═'.repeat(60));
+  console.error('❌ ERROR: CodeB API Key가 설정되지 않았습니다');
+  console.error('═'.repeat(60));
+  console.error('');
+  console.error('🔑 API 키 설정 방법:');
+  console.error('');
+  console.error('   1. 팀 관리자에게 API 키 발급 요청');
+  console.error('');
+  console.error('   2. ~/.codeb/.env 파일 생성:');
+  console.error('      mkdir -p ~/.codeb');
+  console.error('      echo "CODEB_API_KEY=codeb_팀ID_역할_토큰" > ~/.codeb/.env');
+  console.error('');
+  console.error('   또는 환경변수로 설정:');
+  console.error('      export CODEB_API_KEY=codeb_팀ID_역할_토큰');
+  console.error('');
+  console.error('═'.repeat(60));
   process.exit(1);
 }
 
@@ -259,7 +301,7 @@ const TOOLS: Tool[] = [
 const server = new Server(
   {
     name: 'codeb-deploy',
-    version: '6.0.0',
+    version: '6.0.5',
   },
   {
     capabilities: {
@@ -341,7 +383,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  console.error(`CodeB MCP Proxy v6.0.0 started`);
+  console.error(`CodeB MCP Proxy v6.0.5 started`);
   console.error(`API URL: ${API_URL}`);
   console.error(`API Key: ${API_KEY.slice(0, 20)}...`);
 }

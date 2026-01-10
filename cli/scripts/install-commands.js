@@ -43,17 +43,14 @@ const RULES_SOURCE = path.join(PACKAGE_ROOT, 'rules');
 const CLAUDE_COMMANDS_DIR = path.join(CLAUDE_DIR, 'commands', 'we');
 const CLAUDE_HOOKS_DIR = path.join(CLAUDE_DIR, 'hooks');
 
-// MCP Server configuration - 158 서버 4대 기준
+// MCP Server configuration - HTTP API 방식 (SSH 없음)
 const MCP_SERVER_CONFIG = {
   "codeb-deploy": {
     "command": "we",
     "args": ["mcp", "serve"],
     "env": {
-      "CODEB_APP_SERVER": "158.247.203.55",
-      "CODEB_STREAMING_SERVER": "141.164.42.213",
-      "CODEB_STORAGE_SERVER": "64.176.226.119",
-      "CODEB_BACKUP_SERVER": "141.164.37.63",
-      "SSH_USER": "root"
+      "CODEB_API_URL": "https://api.codeb.kr",
+      "CODEB_API_KEY_FILE": "$HOME/.codeb/.env"
     }
   }
 };
@@ -284,10 +281,57 @@ async function installProjectClaudeMd() {
 }
 
 // ================================================================
-// 4. Install Hooks
+// 4. Setup API Key Directory
+// ================================================================
+async function setupApiKeyDir() {
+  console.log('\n🔑 4. API 키 디렉토리 설정...');
+
+  try {
+    const codebDir = path.join(HOME_DIR, '.codeb');
+    const envPath = path.join(codebDir, '.env');
+    const examplePath = path.join(codebDir, '.env.example');
+
+    // Create ~/.codeb directory
+    await fs.mkdir(codebDir, { recursive: true });
+
+    // Create example env file
+    const exampleContent = `# CodeB API Configuration
+# 팀 관리자에게 API 키 발급 요청 후 아래 값을 설정하세요
+
+# API Endpoint (변경 불필요)
+CODEB_API_URL=https://api.codeb.kr
+
+# Team API Key (필수)
+# 형식: codeb_{teamId}_{role}_{token}
+# 역할: owner > admin > member > viewer
+CODEB_API_KEY=
+`;
+
+    await fs.writeFile(examplePath, exampleContent);
+    console.log('   ✅ .env.example 생성');
+
+    // Check if .env already exists
+    if (existsSync(envPath)) {
+      console.log('   ℹ️  .env 파일이 이미 존재합니다');
+    } else {
+      console.log('   ⚠️  .env 파일을 생성하고 API 키를 설정하세요:');
+      console.log(`      cp ${examplePath} ${envPath}`);
+    }
+
+    console.log(`   📍 위치: ~/.codeb/`);
+    return { created: true };
+
+  } catch (err) {
+    console.error('   ❌ API 키 디렉토리 설정 오류:', err.message);
+    return { created: false };
+  }
+}
+
+// ================================================================
+// 5. Install Hooks
 // ================================================================
 async function installHooks() {
-  console.log('\n🪝 4. Hooks 설치...');
+  console.log('\n🪝 5. Hooks 설치...');
 
   try {
     // Create hooks directory
@@ -366,10 +410,10 @@ if __name__ == '__main__':
 }
 
 // ================================================================
-// 5. Configure Settings
+// 6. Configure Settings
 // ================================================================
 async function configureSettings() {
-  console.log('\n⚙️  5. Settings 구성...');
+  console.log('\n⚙️  6. Settings 구성...');
 
   try {
     const settingsPath = path.join(CLAUDE_DIR, 'settings.json');
@@ -439,6 +483,7 @@ async function install() {
     commands: await installCommands(),
     mcp: await installMcpServer(),
     rules: await installRuleFiles(),
+    apiKey: await setupApiKeyDir(),
     hooks: await installHooks(),
     settings: await configureSettings()
   };
@@ -451,21 +496,28 @@ async function install() {
   console.log(`\n   Commands:  ${results.commands.installed}개 설치`);
   console.log(`   MCP:       ${results.mcp.registered ? '등록 완료' : '이미 등록됨'}`);
   console.log(`   Rules:     ${results.rules.installed}개 설치`);
+  console.log(`   API Key:   ${results.apiKey.created ? '디렉토리 생성됨' : '설정 필요'}`);
   console.log(`   Hooks:     ${results.hooks.installed}개 설치`);
   console.log(`   Settings:  ${results.settings.configured ? '구성 완료' : '이미 구성됨'}`);
 
-  console.log('\n🎯 사용 가능한 명령어:');
-  console.log('   we workflow init <project>  - 프로젝트 초기화');
-  console.log('   we deploy <project>         - 프로젝트 배포');
-  console.log('   we health                   - 시스템 상태 점검');
-  console.log('   we domain                   - 도메인 관리');
+  console.log('\n🔑 API 키 설정 (필수):');
+  console.log('   cp ~/.codeb/.env.example ~/.codeb/.env');
+  console.log('   # 그리고 CODEB_API_KEY 값을 팀에서 발급받은 키로 설정');
   console.log('');
-  console.log('   /we:init                    - Claude Code 슬래시 명령어');
+
+  console.log('🎯 사용 가능한 명령어:');
+  console.log('   we deploy <project>         - 프로젝트 배포');
+  console.log('   we promote <project>        - 프로덕션 전환');
+  console.log('   we rollback <project>       - 롤백');
+  console.log('   we health                   - 시스템 상태 점검');
+  console.log('');
   console.log('   /we:deploy                  - Claude Code 배포 명령어');
   console.log('   /we:analyze                 - Claude Code 분석 명령어');
 
   console.log('\n' + '═'.repeat(60));
-  console.log('✅ 설치 완료! Claude Code를 재시작하여 변경사항을 적용하세요.');
+  console.log('✅ 설치 완료!');
+  console.log('   1. API 키 설정 후 사용 가능');
+  console.log('   2. Claude Code 재시작하여 변경사항 적용');
   console.log('═'.repeat(60) + '\n');
 }
 

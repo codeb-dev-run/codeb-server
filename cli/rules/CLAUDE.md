@@ -159,6 +159,47 @@ we env restore myapp      # MCP API로 ENV 복구
 we health                 # MCP API로 상태 확인
 ```
 
+### 4. API 키 설정 (팀원 필수)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    팀원 API 키 설정 (필수)                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  1. 패키지 설치                                                  │
+│     npm install @codeblabdev-max/we-cli                        │
+│                                                                 │
+│  2. API 키 파일 설정                                             │
+│     ~/.codeb/.env 파일 생성                                     │
+│     ┌─────────────────────────────────────────────────────┐    │
+│     │ CODEB_API_URL=https://api.codeb.kr                  │    │
+│     │ CODEB_API_KEY=codeb_팀ID_역할_토큰                   │    │
+│     └─────────────────────────────────────────────────────┘    │
+│                                                                 │
+│  3. API 키 발급                                                  │
+│     └─→ 팀 관리자(owner/admin)에게 요청                         │
+│     └─→ 역할: owner > admin > member > viewer                  │
+│                                                                 │
+│  ⚠️  API 키 없이는 MCP/CLI 사용 불가                             │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**API 키 설정 명령어:**
+```bash
+# 1. 디렉토리 생성
+mkdir -p ~/.codeb
+
+# 2. API 키 파일 생성
+cat > ~/.codeb/.env << 'EOF'
+CODEB_API_URL=https://api.codeb.kr
+CODEB_API_KEY=codeb_팀ID_역할_토큰
+EOF
+
+# 3. 권한 설정 (보안)
+chmod 600 ~/.codeb/.env
+```
+
 ---
 
 ## Version Management (서버가 기준)
