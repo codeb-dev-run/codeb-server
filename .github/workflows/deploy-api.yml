@@ -102,12 +102,13 @@ jobs:
           echo "🚀 Deploying CodeB API v$VERSION..."
 
           # Stop existing container (if running) - use sudo for root containers
-          sudo podman stop codeb-api 2>/dev/null || true
-          sudo podman rm codeb-api 2>/dev/null || true
+          # Note: Container name is codeb-mcp-api to avoid conflict with codeb-api (Project Generator)
+          sudo podman stop codeb-mcp-api 2>/dev/null || true
+          sudo podman rm codeb-mcp-api 2>/dev/null || true
 
           # Run new container from local image
           sudo podman run -d \
-            --name codeb-api \
+            --name codeb-mcp-api \
             --restart always \
             -p 9101:9101 \
             -e NODE_ENV=production \
