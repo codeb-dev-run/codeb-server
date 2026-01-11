@@ -296,7 +296,7 @@ const TOOLS = [
 // ============================================================================
 const server = new Server({
     name: 'codeb-deploy',
-    version: '7.0.8',
+    version: '7.0.21',
 }, {
     capabilities: {
         tools: {},
@@ -367,7 +367,7 @@ async function main() {
     // Start MCP server
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.error(`CodeB MCP Proxy v7.0.8 started`);
+    console.error(`CodeB MCP Proxy v7.0.21 started`);
     console.error(`API URL: ${API_URL}`);
     console.error(`API Key: ${API_KEY.slice(0, 20)}...`);
 }
