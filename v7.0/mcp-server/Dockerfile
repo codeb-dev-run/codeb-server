@@ -1,4 +1,4 @@
-# CodeB API Server v6.0
+# CodeB API Server v7.0
 # Multi-stage build for minimal image size
 
 # ============================================================================
@@ -8,9 +8,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Install dependencies
+# Install ALL dependencies (including devDependencies for build)
 COPY package*.json ./
-RUN npm ci --only=production=false
+RUN npm ci
 
 # Copy source and build
 COPY tsconfig.json ./
