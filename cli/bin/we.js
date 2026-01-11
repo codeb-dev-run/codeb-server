@@ -349,7 +349,7 @@ program.on('--help', () => {
   console.log('');
   console.log(chalk.gray('  # 환경변수 관리'));
   console.log('  $ we env scan myapp');
-  console.log('  $ we env push myapp --file .env.production'));
+  console.log('  $ we env push myapp --file .env.production');
   console.log('');
   console.log(chalk.cyan('Documentation: https://codeb.io/docs/cli'));
   console.log('');
