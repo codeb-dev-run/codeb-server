@@ -1,10 +1,17 @@
 # Deployment Guide
 
-> **버전: 6.0.5** | 업데이트: 2026-01-11
+> **버전: 7.0.10** | 업데이트: 2026-01-11
 
 ## Blue-Green Slot Architecture
 
 CodeB Server는 **Vercel 스타일 Blue-Green 배포** 시스템을 사용합니다.
+
+### v7.0 배포 방식: Quadlet + systemd (System-wide)
+
+```
+Quadlet 경로: /etc/containers/systemd/{project}-{env}-{slot}.container
+systemctl: root 권한 (--user 없음)
+```
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -36,10 +43,12 @@ we deploy myapp --environment staging
 ```
 
 **동작:**
-1. GHCR에서 새 이미지 Pull
-2. **비활성 Slot**에 컨테이너 시작 (blue가 active면 green으로)
-3. Health check 실행
-4. **Preview URL** 반환
+1. Quadlet 파일 생성 (`/etc/containers/systemd/{project}-{env}-{slot}.container`)
+2. `systemctl daemon-reload`
+3. GHCR에서 새 이미지 Pull
+4. **비활성 Slot**에 컨테이너 시작 (`systemctl start`)
+5. Health check 실행
+6. **Preview URL** 반환
 
 **응답:**
 ```json
@@ -267,8 +276,8 @@ jobs:
 
 | Secret | 설명 |
 |--------|------|
-| `CODEB_API_KEY` | v6.0 형식: `codeb_{teamId}_{role}_{token}` |
-| `GHCR_PAT` | GitHub Container Registry 토큰 |
+| `CODEB_API_KEY` | v7.0 형식: `codeb_{teamId}_{role}_{token}` |
+| `SSH_PRIVATE_KEY` | Self-hosted runner SSH 키 (선택) |
 
 ---
 
@@ -409,7 +418,7 @@ curl -X POST https://api.codeb.kr/api/tool \
 
 ---
 
-## API Key 형식 (v6.0)
+## API Key 형식 (v7.0)
 
 ```
 codeb_{teamId}_{role}_{randomToken}

@@ -1,6 +1,6 @@
 # CodeB Server Documentation
 
-> **버전: 7.0.0** | 코드명: Claude Code 2.1 Integration | 업데이트: 2026-01-11
+> **버전: 7.0.10** | 코드명: Claude Code 2.1 Integration | 업데이트: 2026-01-11
 
 ## 프로젝트 구조
 
@@ -17,7 +17,7 @@ codeb-server/
 │   ├── analytics-sdk/      # 분석 SDK (Web Vitals)
 │   ├── edge-runtime/       # Edge Functions 런타임
 │   ├── infrastructure/     # 인프라 설정 스크립트
-│   └── VERSION             # 버전 기준 파일 (7.0.0)
+│   └── VERSION             # 버전 기준 파일 (7.0.10)
 ├── .claude/                # Claude Code 2.1 통합
 │   ├── settings.local.json # 프로젝트별 설정
 │   ├── skills/             # Skills 시스템 (배포/모니터링/분석)
@@ -120,7 +120,7 @@ codeb-server/
 
 ---
 
-## 패키지 버전 현황 (v7.0.0)
+## 패키지 버전 현황 (v7.0.10)
 
 | 패키지 | 경로 | 버전 | 설명 |
 |--------|------|------|------|
@@ -138,15 +138,15 @@ codeb-server/
 
 ```bash
 # 서버가 항상 버전 기준
-cat v7.0/VERSION  # 7.0.0
+cat v7.0/VERSION  # 7.0.10
 
 # 버전 동기화
 npm run version:sync
 
 # 버전 업데이트
-echo "7.0.1" > v7.0/VERSION
-git add . && git commit -m "chore: bump version to 7.0.1"
-git push  # → GitHub Actions 자동 배포
+echo "7.0.11" > v7.0/VERSION
+git add . && git commit -m "chore: bump version to 7.0.11"
+git push  # → GitHub Actions 자동 배포 (Self-hosted Runner)
 ```
 
 ---
@@ -237,14 +237,20 @@ cat ~/.codeb/.env
 
 ---
 
-## 배포 흐름
+## 배포 흐름 (Quadlet + systemd)
+
+v7.0부터 **System-wide Quadlet + systemd** 방식으로 배포합니다:
+- Quadlet 경로: `/etc/containers/systemd/`
+- systemctl: root 권한 (--user 없음)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    CodeB v6.0 배포 흐름                          │
+│                    CodeB v7.0 배포 흐름                          │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  1. we deploy myapp                                             │
+│     └─→ Quadlet 파일 생성 (/etc/containers/systemd/)            │
+│     └─→ systemctl daemon-reload && systemctl start              │
 │     └─→ 비활성 Slot에 배포 → Preview URL 반환                    │
 │         https://myapp-green.preview.codeb.kr                    │
 │                                                                 │
@@ -256,6 +262,16 @@ cat ~/.codeb/.env
 │     └─→ 즉시 이전 버전으로 롤백 (grace Slot 활성화)              │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
+```
+
+### Quadlet 파일 구조
+
+```
+/etc/containers/systemd/
+├── {project}-staging-blue.container
+├── {project}-staging-green.container
+├── {project}-production-blue.container
+└── {project}-production-green.container
 ```
 
 ---
@@ -395,6 +411,7 @@ we domain setup myapp.codeb.kr     # 도메인 설정
 
 | 버전 | 날짜 | 변경사항 |
 |------|------|----------|
+| 7.0.10 | 2026-01-11 | Quadlet System-wide 경로 수정, systemctl --user 제거, Self-hosted runner workflow 템플릿 |
 | 7.0.0 | 2026-01-11 | Claude Code 2.1 통합, Skills/Hooks 시스템, 패키지명 통일 |
 | 6.0.5 | 2026-01-11 | 버전 통일, 레지스트리 동기화, 프로젝트 정리 |
 | 6.0.4 | 2026-01-10 | Self-hosted runner 설정, DB env vars 수정 |

@@ -1,6 +1,10 @@
 /**
- * CodeB v6.0 - Migration Tools
- * 레거시 시스템(v3.x/v5.x)에서 v6.0 Blue-Green 슬롯 시스템으로 마이그레이션
+ * CodeB v7.0 - Migration Tools
+ * 레거시 시스템(v3.x/v5.x)에서 v7.0 Blue-Green 슬롯 시스템으로 마이그레이션
+ *
+ * Quadlet + systemd (System-wide) 배포
+ * - Quadlet 경로: /etc/containers/systemd/
+ * - systemctl (root, --user 없음)
  */
 
 import { z } from 'zod';
@@ -175,9 +179,9 @@ export async function detectLegacySystem(
             });
           }
 
-          // Quadlet 확인 (systemd 서비스)
+          // Quadlet 확인 (systemd 서비스 - System-wide)
           const systemdCheck = await ssh.exec(
-            `systemctl --user list-units --type=service | grep -q "${name}" && echo "yes" || echo "no"`
+            `systemctl list-units --type=service | grep -q "${name}" && echo "yes" || echo "no"`
           );
           const isQuadlet = systemdCheck.stdout.trim() === 'yes';
 
@@ -649,7 +653,8 @@ async function createQuadletFiles(
   for (const env of projectPlan.environments) {
     if (env.action !== 'migrate') continue;
 
-    const quadletDir = `/opt/codeb/projects/${projectName}/.config/containers/systemd`;
+    // System-wide Quadlet 경로
+    const quadletDir = `/etc/containers/systemd`;
     await ssh.mkdir(quadletDir);
 
     // Blue slot Quadlet
@@ -681,34 +686,51 @@ function generateQuadletFile(config: {
   port: number;
   image: string;
 }): string {
-  return `# CodeB v6.0 - Auto-generated Quadlet
+  const containerName = `${config.projectName}-${config.environment}-${config.slot}`;
+  const timestamp = new Date().toISOString();
+
+  return `# CodeB v7.0 - Quadlet Container (System-wide)
+# Path: /etc/containers/systemd/${containerName}.container
 # Project: ${config.projectName}
 # Environment: ${config.environment}
 # Slot: ${config.slot}
-# Generated during migration
+# Generated during migration: ${timestamp}
 
 [Unit]
-Description=${config.projectName} ${config.environment} (${config.slot} slot)
+Description=CodeB ${config.projectName} ${config.environment} ${config.slot}
 After=network-online.target
+Wants=network-online.target
 
 [Container]
 Image=${config.image || 'placeholder:latest'}
+ContainerName=${containerName}
 PublishPort=${config.port}:3000
-Environment=NODE_ENV=${config.environment === 'production' ? 'production' : 'development'}
-Environment=PORT=3000
 EnvironmentFile=/opt/codeb/projects/${config.projectName}/.env.${config.environment}
-HealthCmd=curl -sf http://localhost:3000/health || exit 1
-HealthInterval=30s
-HealthTimeout=10s
-HealthRetries=3
 AutoUpdate=registry
+
+# Labels for management
+Label=codeb.project=${config.projectName}
+Label=codeb.environment=${config.environment}
+Label=codeb.slot=${config.slot}
+Label=codeb.migrated_at=${timestamp}
+
+# Health check
+HealthCmd=curl -sf http://localhost:3000/health || exit 1
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=30s
+
+# Resource limits
+PodmanArgs=--memory=512m --cpus=1
 
 [Service]
 Restart=always
-RestartSec=10
+RestartSec=5
+TimeoutStartSec=300
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
 `;
 }
 
@@ -770,11 +792,11 @@ async function migrateContainer(
     // 컨테이너 이름 변경 (또는 새로 시작)
     await ssh.exec(`podman rename ${oldContainerName} ${newContainerName} 2>/dev/null || true`);
 
-    // systemd 리로드
-    await ssh.exec('systemctl --user daemon-reload');
+    // systemd 리로드 (System-wide)
+    await ssh.exec('systemctl daemon-reload');
 
-    // 새 슬롯 컨테이너 시작
-    await ssh.exec(`systemctl --user start ${newContainerName} 2>/dev/null || true`);
+    // 새 슬롯 컨테이너 시작 (System-wide)
+    await ssh.exec(`systemctl start ${newContainerName} 2>/dev/null || true`);
   }
 }
 
@@ -904,11 +926,12 @@ export async function rollbackMigration(
       }
     }
 
-    // Quadlet 파일 삭제
+    // Quadlet 파일 삭제 (System-wide path)
     for (const projectPlan of plan.projects) {
-      const quadletDir = `/opt/codeb/projects/${projectPlan.name}/.config/containers/systemd`;
-      await ssh.exec(`rm -rf ${quadletDir}/*.container 2>/dev/null || true`);
+      await ssh.exec(`rm -f /etc/containers/systemd/${projectPlan.name}-*.container 2>/dev/null || true`);
     }
+    // systemd 리로드
+    await ssh.exec('systemctl daemon-reload');
 
     // 기존 컨테이너 재시작
     for (const projectPlan of plan.projects) {
@@ -983,7 +1006,7 @@ export const migrateDetectTool = {
 
 export const migratePlanTool = {
   name: 'migrate_plan',
-  description: 'Create migration plan from legacy to v6.0 slot system',
+  description: 'Create migration plan from legacy to v7.0 slot system',
   inputSchema: planInputSchema,
 
   async execute(params: { projects?: string[]; dryRun?: boolean }, auth: AuthContext) {
@@ -1000,7 +1023,7 @@ export const migratePlanTool = {
 
 export const migrateExecuteTool = {
   name: 'migrate_execute',
-  description: 'Execute migration from legacy to v6.0 slot system',
+  description: 'Execute migration from legacy to v7.0 slot system',
   inputSchema: executeInputSchema,
 
   async execute(params: { migrationId: string; force?: boolean }, auth: AuthContext) {

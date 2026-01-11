@@ -1,6 +1,10 @@
 /**
- * CodeB v6.0 - Blue-Green Deploy Tool
+ * CodeB v7.0 - Blue-Green Deploy Tool
  * Unified HTTP API + Team-based Authentication
+ *
+ * Quadlet + systemd (System-wide) 배포
+ * - Quadlet 경로: /etc/containers/systemd/
+ * - systemctl (root, --user 없음)
  */
 
 import { z } from 'zod';
@@ -34,14 +38,14 @@ export const deployInputSchema = z.object({
 // ============================================================================
 
 /**
- * Execute Blue-Green Deploy with Quadlet + systemd
+ * Execute Blue-Green Deploy with Quadlet + systemd (System-wide)
  *
  * Flow:
  * 1. Get current slot status
  * 2. Select inactive slot (blue or green)
- * 3. Generate Quadlet container file
- * 4. systemctl --user daemon-reload
- * 5. systemctl --user start {container}
+ * 3. Generate Quadlet container file (/etc/containers/systemd/)
+ * 4. systemctl daemon-reload
+ * 5. systemctl start {container}
  * 6. Health check
  * 7. Return preview URL (NOT switch traffic yet)
  */
@@ -120,11 +124,11 @@ export async function executeDeploy(
         output: `Target slot: ${targetSlot} (port ${targetPort})`,
       });
 
-      // Step 3: Generate Quadlet container file
+      // Step 3: Generate Quadlet container file (System-wide)
       const step3Start = Date.now();
       const containerName = `${projectName}-${environment}-${targetSlot}`;
       const imageUrl = input.image || `ghcr.io/codeb/${projectName}:${version}`;
-      const quadletDir = `/opt/codeb/projects/${projectName}/.config/containers/systemd`;
+      const quadletDir = `/etc/containers/systemd`;
       const quadletPath = `${quadletDir}/${containerName}.container`;
       const envFile = `/opt/codeb/projects/${projectName}/.env.${environment}`;
 
@@ -160,10 +164,10 @@ export async function executeDeploy(
         return buildResult(false, steps, startTime, targetSlot, targetPort, projectName, environment);
       }
 
-      // Step 4: systemctl daemon-reload
+      // Step 4: systemctl daemon-reload (System-wide)
       const step4Start = Date.now();
       try {
-        await ssh.exec(`systemctl --user daemon-reload`, { timeout: 30000 });
+        await ssh.exec(`systemctl daemon-reload`, { timeout: 30000 });
 
         steps.push({
           name: 'daemon_reload',
@@ -181,14 +185,14 @@ export async function executeDeploy(
         return buildResult(false, steps, startTime, targetSlot, targetPort, projectName, environment);
       }
 
-      // Step 5: Start container via systemd
+      // Step 5: Start container via systemd (System-wide)
       const step5Start = Date.now();
       const serviceName = containerName;
 
       try {
         // Stop if running, then start fresh
-        await ssh.exec(`systemctl --user stop ${serviceName} 2>/dev/null || true`);
-        await ssh.exec(`systemctl --user start ${serviceName}`, { timeout: 120000 });
+        await ssh.exec(`systemctl stop ${serviceName} 2>/dev/null || true`);
+        await ssh.exec(`systemctl start ${serviceName}`, { timeout: 120000 });
 
         steps.push({
           name: 'start_container',
@@ -220,7 +224,7 @@ export async function executeDeploy(
           });
         } catch (error) {
           // Rollback: stop failed container
-          await ssh.exec(`systemctl --user stop ${serviceName} 2>/dev/null || true`);
+          await ssh.exec(`systemctl stop ${serviceName} 2>/dev/null || true`);
 
           steps.push({
             name: 'health_check',
@@ -307,19 +311,22 @@ function generateQuadletFile(config: {
 }): string {
   const timestamp = new Date().toISOString();
 
-  return `# CodeB v6.0 - Quadlet Container
+  return `# CodeB v7.0 - Quadlet Container (System-wide)
+# Path: /etc/containers/systemd/${config.containerName}.container
 # Generated: ${timestamp}
 # Team: ${config.teamId}
 
 [Unit]
-Description=${config.projectName} ${config.environment} ${config.slot}
+Description=CodeB ${config.projectName} ${config.environment} ${config.slot}
 After=network-online.target
+Wants=network-online.target
 
 [Container]
 Image=${config.image}
 ContainerName=${config.containerName}
 PublishPort=${config.port}:3000
 EnvironmentFile=${config.envFile}
+AutoUpdate=registry
 
 # Labels for management
 Label=codeb.project=${config.projectName}
@@ -330,7 +337,7 @@ Label=codeb.team=${config.teamId}
 Label=codeb.deployed_at=${timestamp}
 
 # Health check
-HealthCmd=curl -f http://localhost:3000/health || exit 1
+HealthCmd=curl -sf http://localhost:3000/health || exit 1
 HealthInterval=10s
 HealthTimeout=5s
 HealthRetries=3
@@ -345,7 +352,7 @@ RestartSec=5
 TimeoutStartSec=300
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
 `;
 }
 

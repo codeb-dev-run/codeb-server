@@ -1,5 +1,9 @@
 /**
- * CodeB v6.0 - Workflow Init Tool
+ * CodeB v7.0 - Workflow Init Tool
+ *
+ * Quadlet + systemd (System-wide) 배포
+ * - Quadlet 경로: /etc/containers/systemd/
+ * - systemctl (root, --user 없음)
  *
  * 프로젝트 초기화:
  * 1. 서버 Registry(SSOT)에 프로젝트 등록
@@ -79,8 +83,8 @@ async function executeWorkflowInit(
     try {
       // 1. 프로젝트 디렉토리 생성
       const projectDir = `/opt/codeb/projects/${projectName}`;
-      await ssh.exec(`mkdir -p ${projectDir}/.config/containers/systemd`);
-      await ssh.exec(`mkdir -p ${projectDir}/quadlet`);
+      await ssh.exec(`mkdir -p ${projectDir}`);
+      await ssh.exec(`mkdir -p /etc/containers/systemd`); // System-wide Quadlet
 
       // 2. 포트 할당 및 Registry 등록
       const registryDir = '/opt/codeb/registry/slots';
@@ -130,11 +134,12 @@ async function executeWorkflowInit(
         files.push(`${registryDir}/${projectName}-production.json`);
       }
 
-      // 3. Quadlet 템플릿 생성
+      // 3. Quadlet 템플릿 생성 (System-wide: /etc/containers/systemd/)
       for (const env of ['staging', 'production']) {
         if (environment === 'both' || environment === env) {
           for (const slot of ['blue', 'green']) {
-            const quadletPath = `${projectDir}/quadlet/${projectName}-${env}-${slot}.container`;
+            const containerName = `${projectName}-${env}-${slot}`;
+            const quadletPath = `/etc/containers/systemd/${containerName}.container`;
             const port = env === 'staging' ? ports.staging![slot as 'blue' | 'green'] : ports.production![slot as 'blue' | 'green'];
 
             const quadletContent = generateQuadletTemplate({
@@ -165,7 +170,7 @@ async function executeWorkflowInit(
 
       // 5. SSOT에 프로젝트 등록
       const ssotPath = '/opt/codeb/registry/ssot.json';
-      let ssot: any = { version: '6.0', projects: {}, ports: { used: [], reserved: [] } };
+      let ssot: any = { version: '7.0', projects: {}, ports: { used: [], reserved: [] } };
 
       try {
         const ssotContent = await ssh.readFile(ssotPath);
@@ -258,16 +263,16 @@ async function executeWorkflowScan(
         issues.push('Dockerfile이 없음');
       }
 
-      // Quadlet 확인
+      // Quadlet 확인 (System-wide path)
       let hasQuadlet = false;
       try {
-        const result = await ssh.exec(`ls ${projectDir}/quadlet/*.container 2>/dev/null | wc -l`);
+        const result = await ssh.exec(`ls /etc/containers/systemd/${projectName}-*.container 2>/dev/null | wc -l`);
         hasQuadlet = parseInt(result.stdout.trim()) > 0;
       } catch {
         // no quadlet files
       }
       if (!hasQuadlet) {
-        issues.push('Quadlet 컨테이너 파일이 없음');
+        issues.push('Quadlet 컨테이너 파일이 없음 (/etc/containers/systemd/)');
       }
 
       // GitHub Actions 확인 (로컬에서 확인해야 함 - 여기선 skip)
@@ -315,7 +320,7 @@ async function executeWorkflowScan(
 
 async function allocatePort(ssh: any, environment: string): Promise<number> {
   const ssotPath = '/opt/codeb/registry/ssot.json';
-  let ssot: any = { version: '6.0', projects: {}, ports: { used: [], reserved: [] } };
+  let ssot: any = { version: '7.0', projects: {}, ports: { used: [], reserved: [] } };
 
   try {
     const content = await ssh.readFile(ssotPath);
@@ -353,37 +358,48 @@ function generateQuadletTemplate(params: {
 }): string {
   const { projectName, environment, slot, port, type } = params;
   const containerName = `${projectName}-${environment}-${slot}`;
+  const timestamp = new Date().toISOString();
 
-  return `# CodeB v6.0 - Quadlet Container
-# Generated: ${new Date().toISOString()}
+  return `# CodeB v7.0 - Quadlet Container (System-wide)
+# Path: /etc/containers/systemd/${containerName}.container
+# Generated: ${timestamp}
 
 [Unit]
-Description=${projectName} (${environment} - ${slot})
+Description=CodeB ${projectName} ${environment} ${slot}
 After=network-online.target
+Wants=network-online.target
 
 [Container]
-ContainerName=${containerName}
 Image=ghcr.io/codeb/${projectName}:latest
+ContainerName=${containerName}
 PublishPort=${port}:3000
 EnvironmentFile=/opt/codeb/projects/${projectName}/.env.${environment}
 AutoUpdate=registry
 
-# Resource limits
-Memory=512M
-CPUQuota=100%
-
-# Labels
+# Labels for management
 Label=codeb.project=${projectName}
 Label=codeb.environment=${environment}
 Label=codeb.slot=${slot}
 Label=codeb.type=${type}
+Label=codeb.deployed_at=${timestamp}
+
+# Health check
+HealthCmd=curl -sf http://localhost:3000/health || exit 1
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=30s
+
+# Resource limits
+PodmanArgs=--memory=512m --cpus=1
 
 [Service]
 Restart=always
-RestartSec=10
+RestartSec=5
+TimeoutStartSec=300
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
 `;
 }
 
@@ -394,7 +410,7 @@ function generateEnvTemplate(params: {
 }): string {
   const { projectName, database, redis } = params;
 
-  let content = `# CodeB v6.0 - Environment Variables
+  let content = `# CodeB v7.0 - Environment Variables
 # Project: ${projectName}
 # Generated: ${new Date().toISOString()}
 
