@@ -8,20 +8,23 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Install yarn
-RUN corepack enable && corepack prepare yarn@stable --activate
-
-# Install ALL dependencies (including devDependencies for build)
+# Copy package files
 COPY package*.json ./
-RUN yarn install --frozen-lockfile || yarn install
+
+# Install dependencies with retry logic for npm issues
+RUN for i in 1 2 3; do \
+      npm install 2>&1 && break || sleep 5; \
+    done && \
+    ls -la node_modules/.bin/ && \
+    node_modules/.bin/tsc --version
 
 # Copy source and build
 COPY tsconfig.json ./
 COPY src ./src
-RUN yarn build
+RUN node_modules/.bin/tsc
 
-# Remove devDependencies
-RUN yarn install --production --ignore-scripts
+# Prune dev dependencies
+RUN npm prune --omit=dev
 
 # ============================================================================
 # Stage 2: Production
