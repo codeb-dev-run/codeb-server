@@ -10,15 +10,16 @@ WORKDIR /app
 
 # Install ALL dependencies (including devDependencies for build)
 COPY package*.json ./
-RUN npm cache clean --force && npm install
+RUN npm install --legacy-peer-deps && \
+    test -f node_modules/.bin/tsc || (echo "tsc not installed" && exit 1)
 
 # Copy source and build
 COPY tsconfig.json ./
 COPY src ./src
-RUN npm run build
+RUN ./node_modules/.bin/tsc
 
 # Prune dev dependencies
-RUN npm prune --production
+RUN npm prune --production --legacy-peer-deps
 
 # ============================================================================
 # Stage 2: Production
