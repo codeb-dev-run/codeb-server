@@ -1,5 +1,5 @@
 /**
- * CodeB v6.0 - Unified HTTP API Server
+ * CodeB v7.0 - Unified HTTP API Server
  *
  * Features:
  * - Team-based authentication (Vercel style)
@@ -10,6 +10,7 @@
  * - Prometheus metrics
  * - Real-time log streaming (SSE)
  * - Domain management (PowerDNS + Caddy)
+ * - Claude Code 2.1 Integration (Skills, Hooks, Agent)
  */
 
 import express, { Request, Response, NextFunction } from 'express';
@@ -121,7 +122,7 @@ import {
 // ============================================================================
 
 const PORT = process.env.PORT || 9101;
-const VERSION = '6.0.6';
+const VERSION = '7.0.0';
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // ============================================================================
