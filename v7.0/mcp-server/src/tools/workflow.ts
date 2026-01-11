@@ -48,6 +48,7 @@ interface WorkflowInitResult {
     production?: { blue: number; green: number };
   };
   registryPath: string;
+  githubActionsWorkflow?: string;  // GitHub Actions 워크플로우 YAML 내용
   error?: string;
 }
 

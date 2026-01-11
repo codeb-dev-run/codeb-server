@@ -1,6 +1,6 @@
 {
   "name": "@codeblabdev-max/mcp-proxy",
-  "version": "7.0.10",
+  "version": "7.0.12",
   "description": "CodeB MCP Server v7.0 - HTTP API Proxy (No SSH, API Key Auth Only)",
   "type": "module",
   "main": "dist/index.js",
