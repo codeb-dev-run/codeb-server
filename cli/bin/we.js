@@ -429,6 +429,7 @@ program
 program
   .command('init')
   .description('Initialize CodeB configuration in current project (CLAUDE.md, slash commands, hooks)')
+  .argument('[apiKey]', 'API Key (format: codeb_{teamId}_{role}_{token})')
   .option('-p, --path <path>', 'Target project path (default: current directory)')
   .option('-f, --force', 'Overwrite existing files')
   .action(init);

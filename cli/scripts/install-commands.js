@@ -38,22 +38,27 @@ const CLAUDE_JSON = path.join(HOME_DIR, '.claude.json');
 // Source directories
 const COMMANDS_SOURCE = path.join(PACKAGE_ROOT, 'commands', 'we');
 const RULES_SOURCE = path.join(PACKAGE_ROOT, 'rules');
+const SKILLS_SOURCE = path.join(PACKAGE_ROOT, 'skills');
 
 // Target directories
 const CLAUDE_COMMANDS_DIR = path.join(CLAUDE_DIR, 'commands', 'we');
 const CLAUDE_HOOKS_DIR = path.join(CLAUDE_DIR, 'hooks');
+const CLAUDE_SKILLS_DIR = path.join(CLAUDE_DIR, 'skills');
+
+// MCP Proxy path (included in this package)
+const MCP_PROXY_PATH = path.join(PACKAGE_ROOT, 'mcp-proxy', 'index.js');
 
 // MCP Server configuration - HTTP API 방식 (SSH 없음)
-const MCP_SERVER_CONFIG = {
+// 패키지에 포함된 mcp-proxy를 직접 실행
+const getMcpServerConfig = () => ({
   "codeb-deploy": {
-    "command": "we",
-    "args": ["mcp", "serve"],
+    "command": "node",
+    "args": [MCP_PROXY_PATH],
     "env": {
-      "CODEB_API_URL": "https://api.codeb.kr",
-      "CODEB_API_KEY_FILE": "$HOME/.codeb/.env"
+      "CODEB_API_URL": "https://api.codeb.kr"
     }
   }
-};
+});
 
 // Default hooks configuration
 const DEFAULT_HOOKS = {
@@ -144,7 +149,8 @@ async function installMcpServer() {
     }
 
     // Add MCP server
-    claudeConfig.mcpServers['codeb-deploy'] = MCP_SERVER_CONFIG['codeb-deploy'];
+    const mcpConfig = getMcpServerConfig();
+    claudeConfig.mcpServers['codeb-deploy'] = mcpConfig['codeb-deploy'];
 
     // Write config
     await fs.writeFile(CLAUDE_JSON, JSON.stringify(claudeConfig, null, 2));
@@ -472,11 +478,72 @@ async function configureSettings() {
 }
 
 // ================================================================
+// 7. Install Skills (Auto-activation)
+// ================================================================
+async function installSkills() {
+  console.log('\n🎯 7. Skills 설치 (자동 활성화)...');
+
+  try {
+    // Check source directory
+    try {
+      await fs.access(SKILLS_SOURCE);
+    } catch {
+      console.log('   ⚠️  Skills 소스 디렉토리가 없습니다. 건너뜁니다.');
+      return { installed: 0, skipped: 0 };
+    }
+
+    // Create target directory
+    await fs.mkdir(CLAUDE_SKILLS_DIR, { recursive: true });
+
+    // Get skill directories
+    const skillDirs = await fs.readdir(SKILLS_SOURCE);
+    let installed = 0;
+    let skipped = 0;
+
+    for (const skillName of skillDirs) {
+      const srcSkillDir = path.join(SKILLS_SOURCE, skillName);
+      const destSkillDir = path.join(CLAUDE_SKILLS_DIR, skillName);
+
+      // Check if it's a directory
+      const stat = await fs.stat(srcSkillDir);
+      if (!stat.isDirectory()) continue;
+
+      // Check for SKILL.md
+      const skillMdPath = path.join(srcSkillDir, 'SKILL.md');
+      if (!existsSync(skillMdPath)) continue;
+
+      try {
+        // Create skill directory
+        await fs.mkdir(destSkillDir, { recursive: true });
+
+        // Copy SKILL.md
+        const destSkillMd = path.join(destSkillDir, 'SKILL.md');
+        await fs.copyFile(skillMdPath, destSkillMd);
+
+        installed++;
+        console.log(`   ✅ ${skillName}`);
+      } catch (err) {
+        console.log(`   ❌ ${skillName}: ${err.message}`);
+        skipped++;
+      }
+    }
+
+    console.log(`   📍 위치: ~/.claude/skills/`);
+    console.log(`   💡 "배포해줘", "분석해줘" 등 자연어로 자동 활성화됩니다.`);
+    return { installed, skipped };
+
+  } catch (err) {
+    console.error('   ❌ Skills 설치 오류:', err.message);
+    return { installed: 0, skipped: 0 };
+  }
+}
+
+// ================================================================
 // Main Installation
 // ================================================================
 async function install() {
   console.log('\n' + '═'.repeat(60));
-  console.log('🚀 we-cli 자동 설치 시작');
+  console.log('🚀 we-cli 자동 설치 시작 (v7.0.8 + Skills)');
   console.log('═'.repeat(60));
 
   const results = {
@@ -485,7 +552,8 @@ async function install() {
     rules: await installRuleFiles(),
     apiKey: await setupApiKeyDir(),
     hooks: await installHooks(),
-    settings: await configureSettings()
+    settings: await configureSettings(),
+    skills: await installSkills()
   };
 
   // Summary
@@ -499,25 +567,28 @@ async function install() {
   console.log(`   API Key:   ${results.apiKey.created ? '디렉토리 생성됨' : '설정 필요'}`);
   console.log(`   Hooks:     ${results.hooks.installed}개 설치`);
   console.log(`   Settings:  ${results.settings.configured ? '구성 완료' : '이미 구성됨'}`);
+  console.log(`   Skills:    ${results.skills.installed}개 설치 (자동 활성화)`);
 
   console.log('\n🔑 API 키 설정 (필수):');
   console.log('   cp ~/.codeb/.env.example ~/.codeb/.env');
   console.log('   # 그리고 CODEB_API_KEY 값을 팀에서 발급받은 키로 설정');
   console.log('');
 
-  console.log('🎯 사용 가능한 명령어:');
-  console.log('   we deploy <project>         - 프로젝트 배포');
-  console.log('   we promote <project>        - 프로덕션 전환');
-  console.log('   we rollback <project>       - 롤백');
-  console.log('   we health                   - 시스템 상태 점검');
+  console.log('🎯 자동 활성화 Skills:');
+  console.log('   "배포해줘"              → codeb-deploy 스킬 자동 활성화');
+  console.log('   "코드 분석해줘"         → codeb-analyze 스킬 자동 활성화');
+  console.log('   "CI/CD 설정해줘"        → codeb-workflow 스킬 자동 활성화');
+  console.log('   "서버 상태 확인해줘"    → codeb-health 스킬 자동 활성화');
   console.log('');
-  console.log('   /we:deploy                  - Claude Code 배포 명령어');
-  console.log('   /we:analyze                 - Claude Code 분석 명령어');
+  console.log('📋 슬래시 명령어 (수동 호출):');
+  console.log('   /we:deploy              - 배포');
+  console.log('   /we:analyze             - 분석');
+  console.log('   /we:workflow            - CI/CD 설정');
 
   console.log('\n' + '═'.repeat(60));
   console.log('✅ 설치 완료!');
   console.log('   1. API 키 설정 후 사용 가능');
-  console.log('   2. Claude Code 재시작하여 변경사항 적용');
+  console.log('   2. Claude Code 재시작하여 Skills 자동 로드');
   console.log('═'.repeat(60) + '\n');
 }
 

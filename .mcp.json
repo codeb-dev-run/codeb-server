@@ -3,11 +3,10 @@
     "codeb-deploy": {
       "command": "node",
       "args": [
-        "/Users/admin/new_project/codeb-server/v6.0/mcp-proxy/dist/index.js"
+        "/Users/admin/new_project/codeb-server/v7.0/mcp-proxy/dist/index.js"
       ],
       "env": {
-        "CODEB_API_URL": "https://api.codeb.kr",
-        "CODEB_API_KEY": "codeb_codeb-admin_owner_494e5c6ae99f36f5d7ad70897f8173d8"
+        "CODEB_API_URL": "https://api.codeb.kr"
       }
     }
   }

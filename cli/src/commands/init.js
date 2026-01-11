@@ -347,12 +347,45 @@ async function validateApiKey(apiKey) {
 }
 
 /**
- * API 키 설정 확인 및 요청
+ * API 키 설정 확인 및 저장
+ * @param {string} providedApiKey - 명령줄로 제공된 API 키 (옵션)
  */
-async function ensureApiKey() {
+async function ensureApiKey(providedApiKey) {
   const config = getConfig();
 
-  // 이미 API 키가 있고 유효한지 확인
+  // 1. 명령줄로 API 키가 제공된 경우
+  if (providedApiKey) {
+    if (!providedApiKey.startsWith('codeb_')) {
+      console.log(chalk.red('\n❌ API 키는 "codeb_"로 시작해야 합니다.\n'));
+      console.log(chalk.gray('형식: codeb_{teamId}_{role}_{token}'));
+      console.log(chalk.gray('예시: codeb_myteam_member_abc123def456\n'));
+      return { valid: false };
+    }
+
+    const spinner = ora('API 키 검증 중...').start();
+    const isValid = await validateApiKey(providedApiKey);
+
+    if (!isValid) {
+      spinner.fail('API 키가 유효하지 않습니다.');
+      console.log(chalk.red('\n팀 관리자에게 올바른 API 키를 요청하세요.\n'));
+      return { valid: false };
+    }
+
+    spinner.succeed('API 키 검증 완료');
+
+    // 설정 저장
+    const newConfig = {
+      ...config,
+      CODEB_API_URL: 'https://api.codeb.kr',
+      CODEB_API_KEY: providedApiKey
+    };
+    saveConfig(newConfig);
+    console.log(chalk.green('✅ API 키가 ~/.codeb/config.json에 저장되었습니다.\n'));
+
+    return { valid: true, apiKey: providedApiKey };
+  }
+
+  // 2. 저장된 API 키가 있고 유효한 경우
   if (config.CODEB_API_KEY) {
     const isValid = await validateApiKey(config.CODEB_API_KEY);
     if (isValid) {
@@ -361,62 +394,37 @@ async function ensureApiKey() {
     console.log(chalk.yellow('\n⚠️  저장된 API 키가 유효하지 않습니다.\n'));
   }
 
-  // API 키가 없거나 유효하지 않은 경우
+  // 3. API 키가 없거나 유효하지 않은 경우 - 사용법 안내
   console.log(chalk.cyan.bold('\n╔═══════════════════════════════════════════════════════════╗'));
   console.log(chalk.cyan.bold('║   CodeB API 키 설정 필요                                   ║'));
   console.log(chalk.cyan.bold('╚═══════════════════════════════════════════════════════════╝\n'));
 
-  console.log(chalk.white('CodeB API를 사용하려면 API 키가 필요합니다.'));
-  console.log(chalk.gray('API 키는 팀 관리자(owner/admin)에게 요청하세요.\n'));
-  console.log(chalk.gray('형식: codeb_{teamId}_{role}_{token}'));
-  console.log(chalk.gray('예시: codeb_myteam_member_abc123def456\n'));
+  console.log(chalk.white('사용법:'));
+  console.log(chalk.cyan('  we init <API_KEY>\n'));
 
-  const { apiKey } = await inquirer.prompt([
-    {
-      type: 'input',
-      name: 'apiKey',
-      message: 'API 키를 입력하세요:',
-      validate: (input) => {
-        if (!input) return 'API 키를 입력해주세요.';
-        if (!input.startsWith('codeb_')) return 'API 키는 "codeb_"로 시작해야 합니다.';
-        return true;
-      }
-    }
-  ]);
+  console.log(chalk.white('예시:'));
+  console.log(chalk.gray('  we init codeb_myteam_member_abc123def456\n'));
 
-  // API 키 검증
-  const spinner = ora('API 키 검증 중...').start();
-  const isValid = await validateApiKey(apiKey);
+  console.log(chalk.white('API 키 형식:'));
+  console.log(chalk.gray('  codeb_{teamId}_{role}_{token}\n'));
 
-  if (!isValid) {
-    spinner.fail('API 키가 유효하지 않습니다.');
-    console.log(chalk.red('\n팀 관리자에게 올바른 API 키를 요청하세요.\n'));
-    return { valid: false };
-  }
+  console.log(chalk.white('API 키 발급:'));
+  console.log(chalk.gray('  팀 관리자(owner/admin)에게 요청하세요.\n'));
 
-  spinner.succeed('API 키 검증 완료');
-
-  // 설정 저장
-  const newConfig = {
-    ...config,
-    CODEB_API_URL: 'https://api.codeb.kr',
-    CODEB_API_KEY: apiKey
-  };
-  saveConfig(newConfig);
-  console.log(chalk.green('✅ API 키가 ~/.codeb/config.json에 저장되었습니다.\n'));
-
-  return { valid: true, apiKey };
+  return { valid: false };
 }
 
 /**
  * we init 명령어 핸들러
+ * @param {string} apiKey - API 키 (옵션)
+ * @param {object} options - 명령어 옵션
  */
-export async function init(options) {
+export async function init(apiKey, options) {
   const projectPath = options.path || process.cwd();
   const projectName = await detectProjectName(projectPath);
 
-  // 0. API 키 확인
-  const apiKeyResult = await ensureApiKey();
+  // 0. API 키 확인 (명령줄 인자로 받은 키 우선)
+  const apiKeyResult = await ensureApiKey(apiKey);
   if (!apiKeyResult.valid) {
     process.exit(1);
   }

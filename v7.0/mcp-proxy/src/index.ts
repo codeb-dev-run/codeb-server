@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * CodeB MCP Proxy Server v6.0
+ * CodeB MCP Proxy Server v7.0
  *
  * This MCP server is a proxy to the CodeB HTTP API.
  * No SSH connections - all operations go through API with API Key authentication.
@@ -31,14 +31,42 @@ import { join } from 'path';
 // Configuration
 // ============================================================================
 
-// Load API key from ~/.codeb/.env if not set in environment
+// Load API key from multiple sources (priority order)
 function loadApiKey(): string {
-  // First check environment variable
+  // 1. First check project .env file (highest priority - project specific)
+  const projectEnvPath = join(process.cwd(), '.env');
+  if (existsSync(projectEnvPath)) {
+    try {
+      const content = readFileSync(projectEnvPath, 'utf-8');
+      const match = content.match(/^CODEB_API_KEY=(.+)$/m);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    } catch {
+      // Ignore read errors
+    }
+  }
+
+  // 2. Then check environment variable
   if (process.env.CODEB_API_KEY) {
     return process.env.CODEB_API_KEY;
   }
 
-  // Then check ~/.codeb/.env file
+  // 3. Then check ~/.codeb/config.json (set by 'we init')
+  const configPath = join(homedir(), '.codeb', 'config.json');
+  if (existsSync(configPath)) {
+    try {
+      const content = readFileSync(configPath, 'utf-8');
+      const config = JSON.parse(content);
+      if (config.CODEB_API_KEY) {
+        return config.CODEB_API_KEY;
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
+  // 4. Then check ~/.codeb/.env file (legacy)
   const envPath = join(homedir(), '.codeb', '.env');
   if (existsSync(envPath)) {
     try {
@@ -63,16 +91,16 @@ if (!API_KEY) {
   console.error('❌ ERROR: CodeB API Key가 설정되지 않았습니다');
   console.error('═'.repeat(60));
   console.error('');
-  console.error('🔑 API 키 설정 방법:');
+  console.error('🔑 API 키 설정 방법 (우선순위 순):');
   console.error('');
-  console.error('   1. 팀 관리자에게 API 키 발급 요청');
+  console.error('   1. 프로젝트 .env 파일에 추가 (권장):');
+  console.error('      echo "CODEB_API_KEY=codeb_팀ID_역할_토큰" >> .env');
   console.error('');
-  console.error('   2. ~/.codeb/.env 파일 생성:');
-  console.error('      mkdir -p ~/.codeb');
-  console.error('      echo "CODEB_API_KEY=codeb_팀ID_역할_토큰" > ~/.codeb/.env');
-  console.error('');
-  console.error('   또는 환경변수로 설정:');
+  console.error('   2. 환경변수로 설정:');
   console.error('      export CODEB_API_KEY=codeb_팀ID_역할_토큰');
+  console.error('');
+  console.error('   3. we init 명령어 실행 (글로벌 설정):');
+  console.error('      npx @codeblabdev-max/we-cli init codeb_팀ID_역할_토큰');
   console.error('');
   console.error('═'.repeat(60));
   process.exit(1);
@@ -301,7 +329,7 @@ const TOOLS: Tool[] = [
 const server = new Server(
   {
     name: 'codeb-deploy',
-    version: '6.0.5',
+    version: '7.0.7',
   },
   {
     capabilities: {
@@ -383,7 +411,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  console.error(`CodeB MCP Proxy v6.0.5 started`);
+  console.error(`CodeB MCP Proxy v7.0.7 started`);
   console.error(`API URL: ${API_URL}`);
   console.error(`API Key: ${API_KEY.slice(0, 20)}...`);
 }
