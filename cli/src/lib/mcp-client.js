@@ -255,14 +255,21 @@ class MCPClient {
 
   /**
    * MCP Server 연결
+   * v7.0: API 키가 있으면 HTTP API 모드 사용 (MCP Stdio 불필요)
    */
   async connect() {
     if (this.connected) return true;
 
     this.loadConfig();
 
+    // v7.0: API 키가 있으면 HTTP API 모드로 전환 (MCP Stdio 불필요)
+    if (this.apiKey && !this.config) {
+      this.httpApiMode = true;
+      return false; // MCP Stdio 연결 안함, HTTP API 사용
+    }
+
     if (!this.config) {
-      console.log(chalk.yellow('MCP config not found. Using fallback mode.'));
+      console.log(chalk.yellow('MCP config not found and no API key. Run "we init <api-key>" first.'));
       this.fallbackMode = true;
       return false;
     }
@@ -372,25 +379,12 @@ class MCPClient {
 
   /**
    * HTTP API를 통한 도구 호출 (Developer용)
+   * v7.0: callCodeBApi 사용 (api.codeb.kr)
    */
   async callToolViaHttpApi(toolName, params = {}) {
-    if (!this._httpApiInfoShown) {
-      console.log(HTTP_API_MODE_INFO);
-      this._httpApiInfoShown = true;
-    }
-
     try {
-      const result = await this.callHttpApi('tool', 'POST', {
-        tool: toolName,
-        params: params,
-      });
-
-      // HTTP API 응답에서 실제 결과 추출
-      if (result.success && result.result !== undefined) {
-        return result.result;
-      }
-
-      return result;
+      // v7.0: callCodeBApi 사용 (이미 결과 추출 포함)
+      return await this.callCodeBApi(toolName, params);
     } catch (error) {
       // HTTP API 실패 시 SSH Fallback은 시도하지 않음 (Developer는 SSH 없음)
       throw new Error(`HTTP API failed: ${error.message}`);

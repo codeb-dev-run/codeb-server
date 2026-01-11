@@ -48,7 +48,9 @@ interface WorkflowInitResult {
     production?: { blue: number; green: number };
   };
   registryPath: string;
-  githubActionsWorkflow?: string;  // GitHub Actions 워크플로우 YAML 내용
+  githubActionsWorkflow: string;   // GitHub Actions 워크플로우 YAML 내용
+  dockerfile: string;              // Dockerfile 내용
+  instructions: string[];          // 사용자 안내 메시지
   error?: string;
 }
 
@@ -193,12 +195,38 @@ async function executeWorkflowInit(
       await ssh.writeFile(ssotPath, JSON.stringify(ssot, null, 2));
       files.push(ssotPath);
 
+      // 6. GitHub Actions 워크플로우 및 Dockerfile 생성
+      const githubActionsWorkflow = generateGitHubActionsWorkflow({ projectName, type });
+      const dockerfile = generateDockerfile(type);
+
+      // 7. 사용자 안내 메시지
+      const instructions = [
+        `📁 다음 파일을 프로젝트에 생성하세요:`,
+        `   1. .github/workflows/deploy.yml (아래 워크플로우 내용 복사)`,
+        `   2. Dockerfile (아래 내용 복사, 이미 있으면 스킵)`,
+        ``,
+        `🔑 GitHub Secrets 설정:`,
+        `   Settings > Secrets > Actions에서 다음 설정:`,
+        `   - CODEB_API_KEY: CodeB API 키 (we login으로 확인)`,
+        ``,
+        `🚀 배포 테스트:`,
+        `   git push origin main  # → 자동으로 staging 배포`,
+        `   we promote ${projectName}  # → production 전환`,
+        ``,
+        `📊 할당된 포트:`,
+        ports.staging ? `   Staging: Blue=${ports.staging.blue}, Green=${ports.staging.green}` : '',
+        ports.production ? `   Production: Blue=${ports.production.blue}, Green=${ports.production.green}` : '',
+      ].filter(Boolean);
+
       return {
         success: true,
         projectName,
         files,
         ports,
         registryPath: `/opt/codeb/registry/slots/${projectName}-*.json`,
+        githubActionsWorkflow,
+        dockerfile,
+        instructions,
       };
     } catch (error) {
       return {
@@ -207,6 +235,9 @@ async function executeWorkflowInit(
         files,
         ports,
         registryPath: '',
+        githubActionsWorkflow: '',
+        dockerfile: '',
+        instructions: [],
         error: error instanceof Error ? error.message : String(error),
       };
     }
@@ -402,6 +433,296 @@ TimeoutStartSec=300
 [Install]
 WantedBy=multi-user.target
 `;
+}
+
+function generateGitHubActionsWorkflow(params: {
+  projectName: string;
+  type: string;
+}): string {
+  const { projectName, type } = params;
+
+  // 프로젝트 타입별 빌드 설정
+  const buildConfigs: Record<string, { buildCommand: string; nodeVersion: string }> = {
+    nextjs: { buildCommand: 'npm run build', nodeVersion: '20' },
+    remix: { buildCommand: 'npm run build', nodeVersion: '20' },
+    nodejs: { buildCommand: 'npm run build || true', nodeVersion: '20' },
+    python: { buildCommand: 'echo "Python project"', nodeVersion: '20' },
+    go: { buildCommand: 'go build -o app .', nodeVersion: '20' },
+  };
+
+  const config = buildConfigs[type] || buildConfigs.nextjs;
+
+  return `# CodeB v7.0 - GitHub Actions Self-Hosted Runner Workflow
+# Generated: ${new Date().toISOString()}
+#
+# 이 워크플로우는 App 서버(158.247.203.55)의 self-hosted runner에서 실행됩니다.
+# Runner 경로: /opt/actions-runner
+# 라벨: self-hosted, Linux, X64, codeb, app-server
+
+name: Deploy ${projectName}
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  PROJECT_NAME: ${projectName}
+  REGISTRY: ghcr.io
+  IMAGE_NAME: \${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image_tag: \${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '${config.nodeVersion}'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: ${config.buildCommand}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: \${{ env.REGISTRY }}
+          username: \${{ github.actor }}
+          password: \${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: \${{ env.REGISTRY }}/\${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        run: |
+          # Podman으로 빌드 (self-hosted runner에서 실행)
+          sudo podman build -t \${{ env.REGISTRY }}/\${{ env.IMAGE_NAME }}:\${{ github.sha }} .
+          sudo podman push \${{ env.REGISTRY }}/\${{ env.IMAGE_NAME }}:\${{ github.sha }}
+
+          # latest 태그도 푸시 (main 브랜치인 경우)
+          if [ "\${{ github.ref }}" = "refs/heads/main" ]; then
+            sudo podman tag \${{ env.REGISTRY }}/\${{ env.IMAGE_NAME }}:\${{ github.sha }} \${{ env.REGISTRY }}/\${{ env.IMAGE_NAME }}:latest
+            sudo podman push \${{ env.REGISTRY }}/\${{ env.IMAGE_NAME }}:latest
+          fi
+
+  deploy-staging:
+    needs: build
+    runs-on: self-hosted
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging'
+    environment: staging
+
+    steps:
+      - name: Deploy to Staging via CodeB API
+        run: |
+          RESPONSE=\$(curl -sf -X POST "https://api.codeb.kr/api/tool" \\
+            -H "X-API-Key: \${{ secrets.CODEB_API_KEY }}" \\
+            -H "Content-Type: application/json" \\
+            -d '{
+              "tool": "deploy",
+              "params": {
+                "projectName": "${projectName}",
+                "environment": "staging",
+                "image": "'\${{ env.REGISTRY }}/\${{ env.IMAGE_NAME }}:\${{ github.sha }}'"
+              }
+            }')
+
+          echo "Deploy Response: \$RESPONSE"
+
+          # Preview URL 추출
+          PREVIEW_URL=\$(echo "\$RESPONSE" | jq -r '.previewUrl // empty')
+          if [ -n "\$PREVIEW_URL" ]; then
+            echo "## 🚀 Staging Deploy Success" >> \$GITHUB_STEP_SUMMARY
+            echo "Preview URL: \$PREVIEW_URL" >> \$GITHUB_STEP_SUMMARY
+          fi
+
+  deploy-production:
+    needs: build
+    runs-on: self-hosted
+    if: github.event.inputs.environment == 'production'
+    environment: production
+
+    steps:
+      - name: Deploy to Production via CodeB API
+        run: |
+          RESPONSE=\$(curl -sf -X POST "https://api.codeb.kr/api/tool" \\
+            -H "X-API-Key: \${{ secrets.CODEB_API_KEY }}" \\
+            -H "Content-Type: application/json" \\
+            -d '{
+              "tool": "deploy",
+              "params": {
+                "projectName": "${projectName}",
+                "environment": "production",
+                "image": "'\${{ env.REGISTRY }}/\${{ env.IMAGE_NAME }}:\${{ github.sha }}'"
+              }
+            }')
+
+          echo "Deploy Response: \$RESPONSE"
+
+      - name: Promote to Production
+        run: |
+          RESPONSE=\$(curl -sf -X POST "https://api.codeb.kr/api/tool" \\
+            -H "X-API-Key: \${{ secrets.CODEB_API_KEY }}" \\
+            -H "Content-Type: application/json" \\
+            -d '{
+              "tool": "slot_promote",
+              "params": {
+                "projectName": "${projectName}",
+                "environment": "production"
+              }
+            }')
+
+          echo "Promote Response: \$RESPONSE"
+          echo "## 🎉 Production Deploy & Promote Success" >> \$GITHUB_STEP_SUMMARY
+`;
+}
+
+function generateDockerfile(type: string): string {
+  const templates: Record<string, string> = {
+    nextjs: `# CodeB v7.0 - Next.js Dockerfile
+FROM node:20-alpine AS base
+
+# Install dependencies only when needed
+FROM base AS deps
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+
+# Build the application
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+# Production image
+FROM base AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
+EXPOSE 3000
+CMD ["node", "server.js"]
+`,
+    remix: `# CodeB v7.0 - Remix Dockerfile
+FROM node:20-alpine AS base
+
+FROM base AS deps
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+FROM base AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=builder /app/build ./build
+COPY --from=builder /app/public ./public
+COPY package*.json ./
+
+EXPOSE 3000
+CMD ["npm", "start"]
+`,
+    nodejs: `# CodeB v7.0 - Node.js Dockerfile
+FROM node:20-alpine
+
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+
+COPY package*.json ./
+RUN npm ci --only=production
+
+COPY . .
+
+EXPOSE 3000
+CMD ["node", "index.js"]
+`,
+    python: `# CodeB v7.0 - Python Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PORT=3000
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 3000
+CMD ["python", "app.py"]
+`,
+    go: `# CodeB v7.0 - Go Dockerfile
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o app .
+
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates
+WORKDIR /app
+COPY --from=builder /app/app .
+
+ENV PORT=3000
+EXPOSE 3000
+CMD ["./app"]
+`,
+  };
+
+  return templates[type] || templates.nodejs;
 }
 
 function generateEnvTemplate(params: {
