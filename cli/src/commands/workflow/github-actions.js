@@ -1,16 +1,18 @@
 /**
- * GitHub Actions Workflow Generator
+ * GitHub Actions Workflow Generator (v7.0)
  *
  * Generates CI/CD workflow files for GitHub Actions
- * Deploy method:
- * - API: MCP API (기본값, 권장) - CODEB_API_KEY 사용
- * - SSH: Admin 전용 (비권장) - SSH_PRIVATE_KEY 사용
+ *
+ * v7.0 방식:
+ * - Self-hosted runner (App Server)에서 빌드 및 배포
+ * - Podman을 사용한 컨테이너 빌드/푸시
+ * - MCP API를 통한 Blue-Green 배포
  */
 
 import { getServerHost, getServerUser, getCliVersion } from '../../lib/config.js';
 
 /**
- * Generate GitHub Actions CI/CD workflow
+ * Generate GitHub Actions CI/CD workflow (v7.0 Self-hosted runner)
  * @param {Object} config - Project configuration
  * @returns {string} GitHub Actions workflow YAML content
  */
@@ -25,19 +27,113 @@ export function generateGitHubActionsWorkflow(config) {
     serverUser = getServerUser(),
     ports = { staging: 3001, production: 3000 },
     domains = {},
-    includeTests = true,
-    includeLint = true,
+    includeTests = false,  // Self-hosted에서는 기본 비활성화 (빌드 속도)
+    includeLint = false,   // Self-hosted에서는 기본 비활성화 (빌드 속도)
     useQuadlet = true,
     useDatabase = true,
     useRedis = false,
     baseDomain = 'codeb.kr',
-    // Deploy method: 'api' (기본값, MCP API) or 'ssh' (Admin 전용)
-    deployMethod = 'api'
+    // v7.0: Self-hosted runner 기본 사용
+    useSelfHosted = true
   } = config;
 
-  // Common build job
-  const buildJob = `  # ============================================
-  # Build Job (GitHub-hosted)
+  // v7.0 Self-hosted runner build & deploy job
+  const selfHostedJob = `  # ============================================
+  # Build & Deploy Job (Self-hosted runner)
+  # App Server에서 직접 빌드 및 배포
+  # ============================================
+  build-and-deploy:
+    name: Build & Deploy
+    runs-on: self-hosted  # App 서버의 Self-hosted runner 사용
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine environment
+        id: env
+        run: |
+          if [ "\${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "environment=\${{ github.event.inputs.environment }}" >> \$GITHUB_OUTPUT
+          elif [ "\${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "environment=production" >> \$GITHUB_OUTPUT
+          else
+            echo "environment=staging" >> \$GITHUB_OUTPUT
+          fi
+          echo "image_tag=\${{ github.sha }}" >> \$GITHUB_OUTPUT
+
+      - name: Login to GHCR (Podman)
+        run: |
+          echo "\${{ secrets.GHCR_PAT }}" | sudo podman login ghcr.io -u \${{ github.actor }} --password-stdin
+
+      - name: Build and Push with Podman
+        run: |
+          IMAGE_TAG="\${{ env.REGISTRY }}/\${{ env.IMAGE_NAME }}:\${{ github.sha }}"
+
+          echo "Building image: \$IMAGE_TAG"
+          sudo podman build --no-cache -t "\$IMAGE_TAG" .
+
+          echo "Pushing image: \$IMAGE_TAG"
+          sudo podman push "\$IMAGE_TAG"
+
+          echo "image_url=\$IMAGE_TAG" >> \$GITHUB_OUTPUT
+
+      - name: Deploy via CodeB MCP API v7.0
+        id: deploy
+        run: |
+          echo "Deploying to \${{ steps.env.outputs.environment }}..."
+
+          RESPONSE=\$(curl -sf -X POST "https://api.codeb.kr/api/tool" \\
+            -H "X-API-Key: \${{ secrets.CODEB_API_KEY }}" \\
+            -H "Content-Type: application/json" \\
+            -d '{
+              "tool": "deploy",
+              "params": {
+                "projectName": "${projectName}",
+                "environment": "'\${{ steps.env.outputs.environment }}'",
+                "version": "'\${{ github.sha }}'",
+                "image": "'\${{ env.REGISTRY }}/\${{ env.IMAGE_NAME }}:\${{ github.sha }}'"
+              }
+            }' 2>&1) || true
+
+          echo "API Response: \$RESPONSE"
+
+          # Check success
+          SUCCESS=\$(echo "\$RESPONSE" | jq -r '.success // false')
+          if [ "\$SUCCESS" = "true" ]; then
+            PREVIEW_URL=\$(echo "\$RESPONSE" | jq -r '.result.previewUrl // "N/A"')
+            SLOT=\$(echo "\$RESPONSE" | jq -r '.result.slot // "unknown"')
+            echo "preview_url=\$PREVIEW_URL" >> \$GITHUB_OUTPUT
+            echo "slot=\$SLOT" >> \$GITHUB_OUTPUT
+            echo "✅ Deploy success! Slot: \$SLOT"
+          else
+            ERROR=\$(echo "\$RESPONSE" | jq -r '.error // "Unknown error"')
+            echo "❌ Deploy failed: \$ERROR"
+            exit 1
+          fi
+
+      - name: Cleanup old images
+        if: always()
+        run: |
+          sudo podman image prune -f || true
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "Deployment Summary"
+          echo "=========================================="
+          echo "Project: ${projectName}"
+          echo "Environment: \${{ steps.env.outputs.environment }}"
+          echo "Slot: \${{ steps.deploy.outputs.slot }}"
+          echo "Image: \${{ env.REGISTRY }}/\${{ env.IMAGE_NAME }}:\${{ github.sha }}"
+          echo "Preview URL: \${{ steps.deploy.outputs.preview_url }}"
+          echo "Commit: \${{ github.sha }}"`;
+
+  // Legacy GitHub-hosted build job (fallback)
+  const githubHostedBuildJob = `  # ============================================
+  # Build Job (GitHub-hosted) - Legacy fallback
   # ============================================
   build:
     name: Build & Push Image
@@ -72,7 +168,7 @@ export function generateGitHubActionsWorkflow(config) {
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
 ${includeLint ? `      - name: Run linter
         run: npm run lint --if-present
@@ -312,16 +408,13 @@ ${includeLint ? `      - name: Run linter
           echo "URL: https://\${{ steps.vars.outputs.url }}"
           echo "Commit: \${{ github.sha }}"`;
 
-  // Select deploy method
-  const deployJob = deployMethod === 'api' ? apiDeployJob : sshDeployJob;
-  const deployMethodComment = deployMethod === 'api'
-    ? '# Deploy: API (Developer - CODEB_API_KEY)'
-    : '# Deploy: SSH (Admin - SSH_PRIVATE_KEY)';
-
-  const workflow = `# ${projectName} CI/CD Pipeline
+  // v7.0: Self-hosted runner가 기본값
+  // useSelfHosted가 true면 Self-hosted runner 방식, false면 레거시 GitHub-hosted 방식
+  if (useSelfHosted) {
+    // v7.0 Self-hosted runner workflow
+    const workflow = `# ${projectName} CI/CD Pipeline
 # Generated by CodeB CLI v${getCliVersion()}
-# Build: GitHub-hosted runners (ubuntu-latest)
-${deployMethodComment}
+# Build & Deploy: Self-hosted runner (App Server) + Podman + MCP API v7.0
 
 name: ${projectName} CI/CD
 
@@ -352,7 +445,49 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-${buildJob}
+${selfHostedJob}
+`;
+    return workflow;
+  }
+
+  // Legacy GitHub-hosted workflow (fallback)
+  const deployJob = sshDeployJob;
+
+  const workflow = `# ${projectName} CI/CD Pipeline
+# Generated by CodeB CLI v${getCliVersion()}
+# Build: GitHub-hosted runners (ubuntu-latest) - Legacy mode
+# Deploy: SSH (Admin - SSH_PRIVATE_KEY)
+
+name: ${projectName} CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ${registry}
+  IMAGE_NAME: \${{ github.repository }}
+  NODE_VERSION: '${nodeVersion}'
+
+# Cancel in-progress runs for the same branch
+concurrency:
+  group: \${{ github.workflow }}-\${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+${githubHostedBuildJob}
 ${deployJob}
 `;
 

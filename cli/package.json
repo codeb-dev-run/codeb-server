@@ -1,7 +1,7 @@
 {
   "name": "@codeblabdev-max/we-cli",
-  "version": "7.0.2",
-  "description": "/we: Web Deploy CLI - MCP-First Architecture (scan → up → deploy)",
+  "version": "7.0.10",
+  "description": "/we: Web Deploy CLI - MCP-First + Skills Auto-Activation",
   "type": "module",
   "bin": {
     "we": "./bin/we.js"
@@ -12,7 +12,9 @@
     "src",
     "commands",
     "scripts",
-    "rules"
+    "rules",
+    "mcp-proxy",
+    "skills"
   ],
   "repository": {
     "type": "git",
@@ -37,8 +39,9 @@
     "deployment",
     "mcp",
     "claude-code",
-    "centrifugo",
-    "websocket",
+    "skills",
+    "auto-activation",
+    "blue-green",
     "devops",
     "automation"
   ],
