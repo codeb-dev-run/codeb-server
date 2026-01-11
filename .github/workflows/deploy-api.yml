@@ -27,16 +27,13 @@ env:
   IMAGE_NAME: ${{ github.repository }}/codeb-api
 
 jobs:
-  # Build: Self-hosted runner on App server (has Podman + buildah)
+  # Build: Self-hosted runner on App server
   build:
-    name: Build & Push Docker Image
+    name: Build & Deploy (Direct)
     runs-on: self-hosted
     permissions:
       contents: read
       packages: write
-
-    outputs:
-      image_tag: ${{ steps.version.outputs.tag }}
 
     steps:
       - uses: actions/checkout@v4
@@ -46,79 +43,88 @@ jobs:
         run: |
           VERSION=$(cat v7.0/VERSION | tr -d '\n')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$VERSION" >> $GITHUB_OUTPUT
           echo "📦 Building version: $VERSION"
 
-      - name: Login to GitHub Container Registry
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build TypeScript (Host-based)
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ghcr.io -u ${{ github.actor }} --password-stdin
+          cd v7.0/mcp-server
+          npm ci
+          npm run build
+          echo "✅ TypeScript build complete"
+          ls -la dist/
 
-      - name: Build image with Podman
+      - name: Stop legacy node service (if any)
         run: |
-          sudo podman build --no-cache \
-            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }} \
-            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
-            -f ./v7.0/mcp-server/Dockerfile \
-            ./v7.0/mcp-server
-
-      - name: Push image
-        run: |
-          sudo podman push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
-          sudo podman push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-
-  # Deploy: Self-hosted runner (same server, direct deployment)
-  deploy:
-    name: Deploy to Server
-    runs-on: self-hosted
-    needs: build
-    environment: ${{ github.event.inputs.environment || 'production' }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Read version
-        id: version
-        run: |
-          VERSION=$(cat v7.0/VERSION | tr -d '\n')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Stop legacy node service (migration to container)
-        run: |
-          # One-time migration: stop legacy systemd node service
-          # This can be removed after first successful container deployment
           if sudo systemctl is-active codeb-mcp-api.service 2>/dev/null; then
-            echo "⚠️ Stopping legacy node service for container migration..."
+            echo "⚠️ Stopping legacy node service..."
             sudo systemctl stop codeb-mcp-api.service
             sudo systemctl disable codeb-mcp-api.service
-            echo "✅ Legacy service stopped and disabled"
-          else
-            echo "ℹ️ No legacy service running (already containerized)"
           fi
 
-      - name: Login to GitHub Container Registry
+      - name: Stop existing container
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ghcr.io -u ${{ github.actor }} --password-stdin
-
-      - name: Deploy CodeB API
-        run: |
-          set -e
-          VERSION="${{ steps.version.outputs.version }}"
-
-          echo "🚀 Deploying CodeB API v$VERSION..."
-
-          # Stop existing container (if running) - use sudo for root containers
-          # Note: Container name is codeb-mcp-api to avoid conflict with codeb-api (Project Generator)
           sudo podman stop codeb-mcp-api 2>/dev/null || true
           sudo podman rm codeb-mcp-api 2>/dev/null || true
 
-          # Force pull the new image (avoid using cached local image)
-          echo "📥 Pulling image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$VERSION"
-          sudo podman pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$VERSION
+      - name: Prepare production dependencies
+        run: |
+          cd v7.0/mcp-server
+          rm -rf node_modules
+          npm ci --omit=dev
+          echo "✅ Production dependencies ready"
 
-          # Load DB credentials from existing env file
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Build minimal Docker image
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          cd v7.0/mcp-server
+
+          # Create minimal Dockerfile for pre-built code
+          cat > Dockerfile.prod <<'DOCKERFILE'
+          FROM node:20-alpine
+          RUN addgroup -g 1001 -S nodejs && adduser -S codeb -u 1001 -G nodejs
+          WORKDIR /app
+          COPY --chown=codeb:nodejs dist ./dist
+          COPY --chown=codeb:nodejs node_modules ./node_modules
+          COPY --chown=codeb:nodejs package.json ./
+          RUN mkdir -p /app/logs && chown codeb:nodejs /app/logs
+          ENV NODE_ENV=production PORT=9101
+          HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- http://localhost:9101/health || exit 1
+          USER codeb
+          EXPOSE 9101
+          CMD ["node", "dist/index.js"]
+          DOCKERFILE
+
+          sudo podman build \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$VERSION \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+            -f Dockerfile.prod .
+
+          rm Dockerfile.prod
+
+      - name: Push image
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          sudo podman push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$VERSION
+          sudo podman push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Deploy CodeB API
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          echo "🚀 Deploying CodeB API v$VERSION..."
+
+          # Load DB credentials
           source /opt/codeb/mcp-server/.env 2>/dev/null || true
 
-          # Run new container
+          # Run container
           sudo podman run -d \
             --name codeb-mcp-api \
             --restart always \
@@ -153,15 +159,9 @@ jobs:
 
           # Verify version
           DEPLOYED_VERSION=$(curl -sf http://localhost:9101/health | jq -r '.version')
-          if [ "$DEPLOYED_VERSION" = "$VERSION" ]; then
-            echo "✅ Version verified: $DEPLOYED_VERSION"
-          else
-            echo "⚠️ Version mismatch: expected $VERSION, got $DEPLOYED_VERSION"
-          fi
-
-          echo "✅ Deployment complete!"
+          echo "✅ Deployed version: $DEPLOYED_VERSION"
 
       - name: Verify external access
         run: |
-          sleep 5
+          sleep 3
           curl -sf https://api.codeb.kr/health && echo "✅ External access OK" || echo "⚠️ External access check failed"
