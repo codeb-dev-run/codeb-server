@@ -1,6 +1,6 @@
 # CodeB Team API Keys
 
-> 생성일: 2026-01-07
+> **버전: 6.0.5** | 업데이트: 2026-01-11
 > 팀: codeb
 > 총 인원: 10명 (Admin 1 + Developer 9)
 
@@ -25,25 +25,52 @@
 
 ## 팀원 배포 설정 방법
 
+### 환경 변수 설정
+
 ```bash
 # ~/.zshrc 또는 ~/.bashrc에 추가
 export CODEB_API_KEY="여기에_본인_API_Key_입력"
 
 # 저장 후 적용
 source ~/.zshrc
+```
 
-# 테스트
-/we:health
+### CLI 설치
+
+```bash
+# GitHub Package Registry 설정
+echo "@codeblabdev-max:registry=https://npm.pkg.github.com" >> ~/.npmrc
+
+# CLI 설치
+npm install -g @codeblabdev-max/we-cli
+
+# 버전 확인
+we --version  # 6.0.5
+```
+
+### 연결 테스트
+
+```bash
+# 시스템 상태 확인
+we health
+
+# 또는 curl로 직접 테스트
+curl -X POST https://api.codeb.kr/api/tool \
+  -H "X-API-Key: $CODEB_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"tool": "slot_status", "params": {"projectName": "worb"}}'
 ```
 
 ---
 
-## 권한 설명
+## 권한 설명 (v6.0)
 
-| 역할 | 배포 | Promote | Rollback | ENV 설정 | 팀 관리 |
-|------|:----:|:-------:|:--------:|:--------:|:-------:|
-| **owner** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **member** | ✅ | ✅ | ✅ | ✅ | ❌ |
+| 역할 | Level | 배포 | Promote | Rollback | ENV 설정 | 슬롯 정리 | 팀 관리 |
+|------|:-----:|:----:|:-------:|:--------:|:--------:|:--------:|:-------:|
+| **owner** | 4 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **admin** | 3 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **member** | 2 | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| **viewer** | 1 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ---
 
@@ -112,6 +139,25 @@ INSERT INTO api_keys (key_id, team_id, key_hash, role, name, is_active) VALUES
 2. **API Key는 본인만 사용하세요**
 3. **유출 시 즉시 Admin에게 보고하세요**
 4. **새 Key 발급 후 기존 Key는 폐기됩니다**
+
+---
+
+## GitHub Actions Secrets 설정
+
+각 프로젝트 Repository → Settings → Secrets에 추가:
+
+| Secret | 값 | 용도 |
+|--------|-----|------|
+| `CODEB_API_KEY` | 팀원 API Key | MCP API 인증 |
+| `GHCR_PAT` | GitHub Token | Container Registry |
+
+---
+
+## 관련 문서
+
+- [TEAM-SETUP.md](../../docs/TEAM-SETUP.md) - 팀원용 전체 설정 가이드
+- [API-REFERENCE.md](../../docs/API-REFERENCE.md) - MCP API 레퍼런스
+- [API-PERMISSIONS.md](../../docs/API-PERMISSIONS.md) - 권한 상세
 
 ---
 

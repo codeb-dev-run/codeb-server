@@ -240,7 +240,7 @@ cat ~/.codeb/.env
 │                                                                 │
 │  1. we deploy myapp                                             │
 │     └─→ 비활성 Slot에 배포 → Preview URL 반환                    │
-│         https://myapp-green.preview.codeb.dev                   │
+│         https://myapp-green.preview.codeb.kr                    │
 │                                                                 │
 │  2. we promote myapp                                            │
 │     └─→ Caddy 설정만 변경 → 무중단 트래픽 전환                    │
@@ -380,7 +380,7 @@ we env set myapp KEY=value         # 설정
 we env restore myapp               # 복구
 
 # 도메인
-we domain setup myapp.codeb.dev    # 도메인 설정
+we domain setup myapp.codeb.kr     # 도메인 설정
 ```
 
 ---

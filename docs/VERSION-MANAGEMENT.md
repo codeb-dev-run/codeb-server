@@ -1,172 +1,132 @@
-# Version Management Guide (v3.2.6+)
+# Version Management Guide
+
+> **버전: 6.0.5** | 업데이트: 2026-01-11
 
 ## Single Source of Truth
 
-CodeB는 버전을 단일 파일에서 관리합니다.
+CodeB v6.0은 **서버의 VERSION 파일**을 단일 진실 소스로 사용합니다.
 
 ```
 codeb-server/
-├── VERSION              # 단일 진실 소스 (SSOT)
-├── cli/package.json     # VERSION 참조
-├── api/package.json     # VERSION 참조
-├── package.json         # VERSION 참조
-├── cli/install.sh       # VERSION 참조
-├── CLAUDE.md            # VERSION 참조
-└── cli/rules/CLAUDE.md  # VERSION 참조
+├── v6.0/VERSION         # 단일 진실 소스 (SSOT) - 현재: 6.0.5
+├── api/package.json     # VERSION에서 동기화
+├── cli/package.json     # VERSION에서 동기화
+├── web-ui/package.json  # VERSION에서 동기화
+└── CLAUDE.md            # VERSION 참조
+```
+
+## 버전 관리 원칙
+
+### 1. 서버가 항상 버전 기준
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    CodeB 버전 관리 원칙                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  1. v6.0/VERSION 파일이 단일 진실 소스                           │
+│     └─→ 모든 package.json은 VERSION에서 동기화                   │
+│                                                                 │
+│  2. 버전 업데이트 절차                                           │
+│     └─→ v6.0/VERSION 파일 수정                                  │
+│     └─→ 커밋 & 푸시 → GitHub Actions 자동 배포                  │
+│     └─→ 서버가 새 버전으로 업데이트됨                            │
+│                                                                 │
+│  3. 로컬 개발 전 버전 체크                                       │
+│     └─→ npm run dev 실행 시 서버 버전 확인 권장                  │
+│     └─→ 버전 불일치 시 git pull 필요                            │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 2. 버전 확인 방법
+
+```bash
+# 서버 버전 확인
+curl -sf https://api.codeb.kr/health | jq '.version'
+
+# 로컬 버전 확인
+cat v6.0/VERSION
+
+# 패키지 버전 확인
+grep '"version"' api/package.json cli/package.json web-ui/package.json
 ```
 
 ## 버전 업데이트 방법
 
-### 1. sync-version.sh 사용 (권장)
+### 1. VERSION 파일 수정
 
 ```bash
 # 버전 업데이트
-./scripts/sync-version.sh 3.2.7
-
-# 출력:
-# Updated VERSION file to: 3.2.7
-# Syncing all packages to version: 3.2.7
-#   Updated: cli/package.json
-#   Updated: api/package.json
-#   Updated: package.json
-#   Updated: cli/install.sh
-#   Updated: CLAUDE.md
-#   Synced: ~/.claude/CLAUDE.md
-#   Synced: cli/rules/CLAUDE.md
+echo "6.0.6" > v6.0/VERSION
 ```
 
-### 2. 수동 업데이트 (비권장)
-
-수동으로 VERSION 파일만 수정하면 다른 파일들이 동기화되지 않습니다.
+### 2. package.json 동기화
 
 ```bash
-# 절대 하지 마세요
-echo "3.2.7" > VERSION  # ❌ 다른 파일 동기화 안됨
+# 수동 동기화 (선택)
+NEW_VERSION=$(cat v6.0/VERSION)
+sed -i "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/" api/package.json
+sed -i "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/" cli/package.json
+sed -i "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/" web-ui/package.json
 ```
 
-## sync-version.sh 동작
+### 3. 커밋 & 푸시
 
 ```bash
-#!/bin/bash
-# scripts/sync-version.sh
-
-VERSION=$1
-
-# 1. VERSION 파일 업데이트
-echo "$VERSION" > VERSION
-
-# 2. package.json 버전 업데이트
-sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" cli/package.json
-sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" api/package.json
-sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" package.json
-
-# 3. install.sh 배너 업데이트
-sed -i "s/we-cli v[0-9]*\.[0-9]*\.[0-9]*/we-cli v$VERSION/" cli/install.sh
-
-# 4. CLAUDE.md 버전 헤더 업데이트
-sed -i "1s/v[0-9]*\.[0-9]*\.[0-9]*/v$VERSION/" CLAUDE.md
-
-# 5. ~/.claude/CLAUDE.md 동기화
-cp CLAUDE.md ~/.claude/CLAUDE.md
-
-# 6. cli/rules/CLAUDE.md 동기화 (npm 패키지)
-cp CLAUDE.md cli/rules/CLAUDE.md
-```
-
-## 배포 프로세스
-
-버전 업데이트 후 배포 순서:
-
-```bash
-# 1. 버전 동기화
-./scripts/sync-version.sh 3.2.7
-
-# 2. CLI npm 배포
-cd cli && npm publish --registry https://npm.pkg.github.com --//npm.pkg.github.com/:_authToken=$(gh auth token)
-
-# 3. API 서버 배포
-cd ../api
-scp mcp-http-api.js package.json root@158.247.203.55:/opt/codeb/mcp-api/
-ssh root@158.247.203.55 'pkill -f "node.*mcp-http-api"; cd /opt/codeb/mcp-api && nohup node mcp-http-api.js > /var/log/codeb-api.log 2>&1 &'
-
-# 4. Git 커밋 & 푸시
-git add .
-git commit -m "chore: bump version to 3.2.7"
+git add v6.0/VERSION api/package.json cli/package.json web-ui/package.json
+git commit -m "chore: bump version to 6.0.6"
 git push origin main
 ```
 
-## CLAUDE.md 배포
+### 4. GitHub Actions 자동 배포
 
-CLAUDE.md는 세 곳에 동기화됩니다:
+푸시 후 GitHub Actions가 자동으로:
+- Docker 이미지 빌드
+- Self-hosted runner에서 배포
+- MCP API 서버 업데이트
 
-| 위치 | 용도 |
-|------|------|
-| `CLAUDE.md` | 프로젝트 루트 (git) |
-| `~/.claude/CLAUDE.md` | 글로벌 Claude 설정 |
-| `cli/rules/CLAUDE.md` | npm 패키지 포함 |
-
-### we update 명령어
-
-타 프로젝트에서 CLAUDE.md를 최신 버전으로 업데이트:
-
-```bash
-# 현재 프로젝트 CLAUDE.md 업데이트
-we update
-
-# 특정 경로 프로젝트 업데이트
-we update --path /path/to/project
-
-# 강제 업데이트 (모든 파일)
-we update --force
-
-# 글로벌 CLAUDE.md만 스킵
-we update --no-global
-```
-
-## 버전 규칙
-
-### Semantic Versioning
+## Semantic Versioning
 
 ```
 MAJOR.MINOR.PATCH
-  3   . 2  . 6
+  6   . 0  . 5
 
-MAJOR: 호환성 깨지는 변경
-MINOR: 새 기능 추가
-PATCH: 버그 수정
+MAJOR (6): 호환성 깨지는 변경 (v5 → v6)
+MINOR (0): 새 기능 추가
+PATCH (5): 버그 수정, 문서 업데이트
 ```
 
-### 예시
+### 버전 변경 예시
 
 ```
-3.2.5 → 3.2.6  # 버그 수정, 권한 추가
-3.2.6 → 3.3.0  # 새 기능 추가
-3.3.0 → 4.0.0  # 호환성 깨지는 변경
+6.0.4 → 6.0.5  # 버그 수정, 레지스트리 동기화
+6.0.5 → 6.1.0  # 새 기능 추가 (Edge Functions 개선)
+6.1.0 → 7.0.0  # 호환성 깨지는 변경
 ```
 
 ## 금지 사항
 
-- ❌ 개별 package.json 버전 직접 수정
+- ❌ 개별 package.json 버전만 직접 수정 (VERSION과 불일치)
 - ❌ 하드코딩된 버전 문자열 사용
 - ❌ VERSION 파일 없이 배포
-- ❌ sync-version.sh 없이 수동 동기화
+- ❌ 서버 버전과 로컬 버전 불일치 상태로 개발
 
-## 확인 방법
+## v6.0 버전 히스토리
 
-```bash
-# 현재 버전 확인
-cat VERSION
-
-# 모든 파일 버전 일치 확인
-grep -h '"version"' */package.json package.json | sort -u
-
-# CLAUDE.md 버전 확인
-head -1 CLAUDE.md
-head -1 cli/rules/CLAUDE.md
-```
+| 버전 | 날짜 | 변경사항 |
+|------|------|----------|
+| 6.0.5 | 2026-01-11 | 버전 통일, 레지스트리 동기화, 프로젝트 정리, 문서 업데이트 |
+| 6.0.4 | 2026-01-10 | Self-hosted runner 설정, CODEB_DB_* env vars |
+| 6.0.3 | 2026-01-09 | Container 배포 방식 전환 |
+| 6.0.2 | 2026-01-08 | MCP API 서버 개선 |
+| 6.0.1 | 2026-01-07 | 인프라 문서화 |
+| 6.0.0 | 2026-01-06 | v6.0 초기 릴리즈 (Team-based auth, Edge Functions, Analytics) |
 
 ## 관련 파일
 
-- [scripts/sync-version.sh](../scripts/sync-version.sh)
-- [VERSION](../VERSION)
-- [CLAUDE.md](../CLAUDE.md)
+- [v6.0/VERSION](../v6.0/VERSION) - 단일 진실 소스
+- [CLAUDE.md](../CLAUDE.md) - 프로젝트 규칙
+- [api/package.json](../api/package.json) - API 패키지
+- [cli/package.json](../cli/package.json) - CLI 패키지
+- [web-ui/package.json](../web-ui/package.json) - Web UI 패키지

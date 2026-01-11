@@ -1,6 +1,6 @@
 {
   "name": "@codeblabdev-max/we-cli",
-  "version": "6.0.5",
+  "version": "6.0.6",
   "description": "/we: Web Deploy CLI - MCP-First Architecture (scan → up → deploy)",
   "type": "module",
   "bin": {
@@ -63,7 +63,7 @@
     "npm": ">=9.0.0"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com",
+    "registry": "https://registry.npmjs.org",
     "access": "public"
   }
 }

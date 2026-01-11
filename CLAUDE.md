@@ -76,7 +76,7 @@
 │                                                                 │
 │  1. we deploy myapp                                             │
 │     └─→ 비활성 Slot에 배포 → Preview URL 반환                    │
-│         https://myapp-green.preview.codeb.dev                   │
+│         https://myapp-green.preview.codeb.kr                   │
 │                                                                 │
 │  2. we promote myapp                                            │
 │     └─→ Caddy 설정만 변경 → 무중단 트래픽 전환                    │
@@ -261,6 +261,63 @@ git push origin main
 #    - package.json 버전 동기화
 #    - Docker 이미지 빌드
 #    - 서버 배포
+```
+
+### 개발 업데이트 시 문서화 규칙 (필수)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    개발 업데이트 → 문서화 필수 규칙                │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  1. CLI 업데이트 시                                              │
+│     └─→ docs/QUICK_START.md 업데이트 (명령어 변경)               │
+│     └─→ docs/API-REFERENCE.md 업데이트 (새 도구 추가)            │
+│     └─→ CLAUDE.md "CLI Quick Reference" 섹션 업데이트           │
+│                                                                 │
+│  2. MCP API 업데이트 시                                          │
+│     └─→ docs/API-REFERENCE.md 업데이트 (Tool 추가/변경)          │
+│     └─→ docs/API-PERMISSIONS.md 업데이트 (권한 변경)             │
+│     └─→ docs/AI-CONTEXT.md 업데이트 (AI 컨텍스트용)              │
+│                                                                 │
+│  3. 인프라 변경 시                                               │
+│     └─→ docs/ARCHITECTURE.md 업데이트                           │
+│     └─→ docs/v6.0-INFRASTRUCTURE.md 업데이트                    │
+│     └─→ CLAUDE.md "4-Server Architecture" 섹션 업데이트         │
+│                                                                 │
+│  4. 버전 업데이트 시                                             │
+│     └─→ v6.0/VERSION 파일 수정 (Single Source of Truth)         │
+│     └─→ docs/ 폴더 내 모든 문서 헤더 버전 업데이트               │
+│     └─→ CLAUDE.md 버전 정보 업데이트                            │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 서버-로컬 버전 동기화 확인 (필수)
+
+```bash
+# 개발 시작 전 항상 확인
+./v6.0/scripts/check-version.sh
+
+# 또는 수동 확인
+SERVER_VER=$(curl -sf https://api.codeb.kr/health | jq -r '.version')
+LOCAL_VER=$(cat v6.0/VERSION)
+echo "서버: $SERVER_VER / 로컬: $LOCAL_VER"
+
+# 불일치 시:
+# - 서버가 최신이면: git pull origin main
+# - 로컬이 최신이면: git push (GitHub Actions가 서버 배포)
+```
+
+### 문서화 체크리스트
+
+```
+□ 코드 변경 완료
+□ v6.0/VERSION 버전 업데이트 (필요시)
+□ 관련 docs/*.md 문서 업데이트
+□ CLAUDE.md 관련 섹션 업데이트 (필요시)
+□ 서버-로컬 버전 동기화 확인
+□ 커밋 메시지에 [docs] 태그 포함 (문서 변경시)
 ```
 
 ---
@@ -513,7 +570,7 @@ curl -X POST https://api.codeb.kr/api/tool \
   "result": {
     "slot": "green",
     "port": 3001,
-    "previewUrl": "https://myapp-green.preview.codeb.dev",
+    "previewUrl": "https://myapp-green.preview.codeb.kr",
     "duration": 45000
   }
 }
@@ -966,8 +1023,8 @@ we env restore myapp               # 복구
 we env history myapp               # 이력
 
 # 도메인
-we domain setup myapp.codeb.dev    # 도메인 설정
-we domain ssl myapp.codeb.dev      # SSL 인증서
+we domain setup myapp.codeb.kr    # 도메인 설정
+we domain ssl myapp.codeb.kr      # SSL 인증서
 
 # Edge Functions (v6.0)
 we edge deploy myapp               # Edge 함수 배포

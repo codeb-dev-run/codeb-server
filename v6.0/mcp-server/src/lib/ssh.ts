@@ -18,7 +18,7 @@ const DEFAULT_SSH_CONFIG: SSHConfig = {
   host: SERVERS.app.ip,
   port: 22,
   username: 'root',
-  privateKeyPath: join(homedir(), '.ssh', 'id_rsa'),
+  privateKeyPath: process.env.SSH_PRIVATE_KEY_PATH || join(homedir(), '.ssh', 'id_rsa'),
 };
 
 const POOL_CONFIG = {
