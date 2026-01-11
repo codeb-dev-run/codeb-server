@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - 'v6.0/mcp-server/**'
+      - 'v6.0/VERSION'
       - '.github/workflows/deploy-api.yml'
   workflow_dispatch:
     inputs:
@@ -54,7 +55,7 @@ jobs:
 
       - name: Build image with Podman
         run: |
-          sudo podman build \
+          sudo podman build --no-cache \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }} \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
             -f ./v6.0/mcp-server/Dockerfile \
