@@ -1,13 +1,14 @@
 # System Architecture
 
-> **버전: 6.0.5** | 업데이트: 2026-01-11
+> **버전: 7.0.0** | 업데이트: 2026-01-11
 
 ## Overview
 
 CodeB Server는 **Vercel 수준의 Self-hosted 배포 플랫폼**입니다:
 
 - **Blue-Green Slot 배포** (무중단 배포)
-- **Team-based API Key 인증** (v6.0 신규)
+- **Team-based API Key 인증** (v6.0+)
+- **Claude Code 2.1 통합** (v7.0 신규 - Skills, Hooks, Agent)
 - **MCP API** for Claude Code 통합
 - **4-Server 인프라** on Vultr
 - **실시간 백업** (PostgreSQL WAL + Redis AOF)
@@ -313,12 +314,12 @@ REDIS_PREFIX=myapp:
 
 ---
 
-## File Structure (v6.0)
+## File Structure (v7.0)
 
 ```
 codeb-server/
-├── v6.0/                       # v6.0 Infrastructure
-│   ├── VERSION                 # Single source of truth (6.0.5)
+├── v7.0/                       # v7.0 Infrastructure (Claude Code 2.1)
+│   ├── VERSION                 # Single source of truth (7.0.0)
 │   ├── mcp-server/             # TypeScript MCP API Server
 │   │   ├── src/
 │   │   │   ├── index.ts        # Express HTTP API
@@ -330,16 +331,31 @@ codeb-server/
 │   │   └── package.json
 │   └── infrastructure/         # Setup scripts
 │
-├── api/                        # API package (6.0.5)
+├── .claude/                    # Claude Code 2.1 Integration
+│   ├── settings.local.json     # Project settings (Wildcard, Hooks)
+│   ├── skills/                 # Skills System (Hot Reload)
+│   │   ├── deploy/             # 배포 관련 Skills
+│   │   ├── monitoring/         # 모니터링 Skills
+│   │   ├── infrastructure/     # 인프라 Skills
+│   │   └── analysis/           # 분석 Skills
+│   └── hooks/                  # Hook Scripts
+│       ├── pre-deploy.py       # PreToolUse: 배포 검증
+│       ├── post-deploy.py      # PostToolUse: 배포 완료 알림
+│       ├── post-promote.py     # PostToolUse: 프로모트 로깅
+│       ├── post-rollback.py    # PostToolUse: 롤백 로깅
+│       ├── session-summary.py  # Stop (once: true): 세션 요약
+│       └── agent-audit.py      # Agent: 감사 로깅
+│
+├── api/                        # API package (7.0.0)
 │   ├── package.json
 │   └── Dockerfile
 │
-├── cli/                        # we CLI Tool (6.0.5)
+├── cli/                        # we CLI Tool (7.0.0)
 │   ├── package.json
 │   ├── bin/we.js               # Entry point
 │   └── src/                    # Ink React TUI
 │
-├── web-ui/                     # Dashboard (Next.js 6.0.5)
+├── web-ui/                     # Dashboard (Next.js 7.0.0)
 │   └── package.json
 │
 ├── docs/                       # Documentation
@@ -348,7 +364,7 @@ codeb-server/
 │   └── workflows/
 │       └── deploy-mcp-api.yml  # Self-hosted runner workflow
 │
-└── CLAUDE.md                   # AI instructions
+└── CLAUDE.md                   # AI instructions (v7.0)
 ```
 
 ---

@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [7.0.0] - 2026-01-11
+
+### Added
+- **Claude Code 2.1 통합** (완전 지원)
+  - **Skills System** (.claude/skills/) - Hot Reload 지원
+    - `/deploy`, `/promote`, `/rollback` - 배포 관련 Skills
+    - `/health`, `/monitor` - 모니터링 Skills
+    - `/domain`, `/workflow` - 인프라 Skills
+    - `/analyze`, `/optimize` - 분석 Skills
+  - **Advanced Hooks** - 배포 라이프사이클 감사
+    - `PreToolUse`: 배포 전 검증 (프로덕션 확인 등)
+    - `PostToolUse`: 배포 후 감사 로깅 및 메트릭 수집
+    - `Stop (once: true)`: 세션 요약 자동 생성
+  - **Agent Hooks** - 에이전트 레벨 작업 모니터링
+  - **context: fork** - 독립 컨텍스트 병렬 실행
+  - **Wildcard Permissions** - `Bash(we *)` 패턴 지원
+
+- **감사 로깅 시스템**
+  - `~/.codeb/deploy-audit.log` - 배포 작업 로그
+  - `~/.codeb/metrics/deploys.jsonl` - 배포 메트릭 (JSON Lines)
+  - `~/.codeb/agent-audit.log` - 에이전트 액션 로그
+  - `~/.codeb/sessions/*.md` - 세션별 요약
+
+- **신규 Hook 스크립트**
+  - `.claude/hooks/pre-deploy.py` - 배포 전 검증
+  - `.claude/hooks/post-deploy.py` - 배포 후 알림/메트릭
+  - `.claude/hooks/post-promote.py` - 프로모트 로깅
+  - `.claude/hooks/post-rollback.py` - 롤백 로깅
+  - `.claude/hooks/session-summary.py` - 세션 요약 (once: true)
+  - `.claude/hooks/agent-audit.py` - 에이전트 감사
+
+- **신규 문서**
+  - `docs/CLAUDE-CODE-INTEGRATION.md` - Claude Code 2.1 통합 가이드
+
+### Changed
+- **패키지명 통일**: 모든 패키지 `@codeblabdev-max/*`로 변경
+  - `@codeb/mcp-proxy` → `@codeblabdev-max/mcp-proxy`
+  - `@codeb/analytics` → `@codeblabdev-max/analytics`
+- **폴더 구조 변경**: `v6.0/` → `v7.0/`
+- **문서 버전 업데이트**: 모든 docs/ 문서 v7.0으로 업데이트
+- **settings.local.json 재구성**: Claude Code 2.1 기능 활성화
+
+### Upgrade Notes
+1. `v6.0/` 폴더를 `v7.0/`으로 마이그레이션 필요
+2. `.claude/commands/` → `.claude/skills/` 마이그레이션 필요
+3. 패키지명 변경으로 인한 import 경로 수정 필요
+
+---
+
+## [6.0.5] - 2026-01-11
+
 ### Added
 - **Blue-Green Slot 기반 무중단 배포** (Vercel 스타일)
   - `deploy`: 새 Slot에 컨테이너 배포 (기존 유지)
@@ -115,7 +166,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/codeblabdev-max/codeb-server/compare/v3.1.0...HEAD
+[Unreleased]: https://github.com/codeblabdev-max/codeb-server/compare/v7.0.0...HEAD
+[7.0.0]: https://github.com/codeblabdev-max/codeb-server/compare/v6.0.5...v7.0.0
+[6.0.5]: https://github.com/codeblabdev-max/codeb-server/compare/v3.1.0...v6.0.5
 [3.1.0]: https://github.com/codeblabdev-max/codeb-server/compare/v3.0.24...v3.1.0
 [3.0.24]: https://github.com/codeblabdev-max/codeb-server/compare/v3.0.0...v3.0.24
 [3.0.0]: https://github.com/codeblabdev-max/codeb-server/releases/tag/v3.0.0

@@ -1,6 +1,6 @@
 # CodeB Server Documentation
 
-> **버전: 6.0.5** | 코드명: Blue-Green | 업데이트: 2026-01-11
+> **버전: 7.0.0** | 코드명: Claude Code 2.1 Integration | 업데이트: 2026-01-11
 
 ## 프로젝트 구조
 
@@ -10,19 +10,23 @@ codeb-server/
 ├── cli/                    # npm 배포용 we-cli 패키지
 ├── docs/                   # 문서
 ├── scripts/                # 빌드/배포 스크립트
-├── v6.0/                   # v6.0 핵심 시스템
+├── v7.0/                   # v7.0 핵심 시스템 (Claude Code 2.1 통합)
 │   ├── mcp-server/         # MCP API 서버 (TypeScript + Express)
 │   ├── mcp-proxy/          # MCP Proxy (팀원용, HTTP API 프록시)
-│   ├── cli/                # v6.0 CLI (Ink React TUI)
+│   ├── cli/                # v7.0 CLI (Ink React TUI)
 │   ├── analytics-sdk/      # 분석 SDK (Web Vitals)
 │   ├── edge-runtime/       # Edge Functions 런타임
 │   ├── infrastructure/     # 인프라 설정 스크립트
-│   └── VERSION             # 버전 기준 파일 (6.0.5)
+│   └── VERSION             # 버전 기준 파일 (7.0.0)
+├── .claude/                # Claude Code 2.1 통합
+│   ├── settings.local.json # 프로젝트별 설정
+│   ├── skills/             # Skills 시스템 (배포/모니터링/분석)
+│   └── hooks/              # Hook 스크립트 (감사 로깅)
 ├── web-ui/                 # 관리 대시보드 (Next.js)
 ├── backup/                 # 레거시 백업 폴더
-├── package.json            # 루트 패키지 (6.0.5)
-├── CLAUDE.md               # AI 코딩 규칙
-└── VERSION                 # 루트 버전 (v6.0/VERSION과 동기화)
+├── package.json            # 루트 패키지 (7.0.0)
+├── CLAUDE.md               # AI 코딩 규칙 (v7.0)
+└── VERSION                 # 루트 버전 (v7.0/VERSION과 동기화)
 ```
 
 ---
@@ -36,8 +40,9 @@ codeb-server/
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | 개발자 | 시스템 아키텍처 |
 | [API-REFERENCE.md](./API-REFERENCE.md) | 개발자/AI | MCP API 전체 레퍼런스 |
 | [AI-CONTEXT.md](./AI-CONTEXT.md) | AI | Claude Code용 컨텍스트 |
-| [v6.0-INFRASTRUCTURE.md](./v6.0-INFRASTRUCTURE.md) | 관리자 | v6.0 인프라 가이드 |
-| [v6.0-BACKUP-SYSTEM.md](./v6.0-BACKUP-SYSTEM.md) | 관리자 | v6.0 백업 시스템 |
+| [CLAUDE-CODE-INTEGRATION.md](./CLAUDE-CODE-INTEGRATION.md) | 개발자/AI | Claude Code 2.1 통합 가이드 (신규) |
+| [v7.0-INFRASTRUCTURE.md](./v7.0-INFRASTRUCTURE.md) | 관리자 | v7.0 인프라 가이드 |
+| [v7.0-BACKUP-SYSTEM.md](./v7.0-BACKUP-SYSTEM.md) | 관리자 | v7.0 백업 시스템 |
 
 ---
 
@@ -53,6 +58,7 @@ codeb-server/
 | **Preview URL** | 배포 전 테스트, promote로 트래픽 전환 |
 | **Grace Period** | 48시간 롤백 가능 (컨테이너 재배포 없음) |
 | **MCP API** | Claude Code에서 직접 배포/관리 |
+| **Claude Code 2.1 통합** | Skills, Hooks, Agent 기반 배포 자동화 (v7.0 신규) |
 | **팀 협업** | SSH 없이 API Key로 팀원 배포 가능 |
 | **실시간 백업** | PostgreSQL WAL + Redis AOF |
 | **Edge Functions** | Deno 기반 서버리스 함수 |
@@ -114,38 +120,38 @@ codeb-server/
 
 ---
 
-## 패키지 버전 현황 (v6.0.5)
+## 패키지 버전 현황 (v7.0.0)
 
 | 패키지 | 경로 | 버전 | 설명 |
 |--------|------|------|------|
-| **@codeblabdev-max/we-cli** | `package.json` | 6.0.5 | 루트 npm 패키지 |
-| **codeb-api** | `api/package.json` | 6.0.5 | Project Generator + MCP HTTP API |
-| **@codeblabdev-max/we-cli** | `cli/package.json` | 6.0.5 | CLI npm 패키지 배포용 |
-| **codeb-web-ui** | `web-ui/package.json` | 6.0.5 | 관리 대시보드 |
-| **@codeblabdev-max/mcp-server** | `v6.0/mcp-server/package.json` | 6.0.5 | MCP API 서버 |
-| **@codeb/mcp-proxy** | `v6.0/mcp-proxy/package.json` | 6.0.5 | MCP Proxy (팀원용) |
-| **@codeblabdev-max/we-cli** | `v6.0/cli/package.json` | 6.0.5 | v6.0 CLI |
-| **@codeb/analytics** | `v6.0/analytics-sdk/package.json` | 6.0.5 | 분석 SDK |
-| **@codeblabdev-max/edge-runtime** | `v6.0/edge-runtime/package.json` | 6.0.5 | Edge Functions |
+| **@codeblabdev-max/we-cli** | `package.json` | 7.0.0 | 루트 npm 패키지 |
+| **codeb-api** | `api/package.json` | 7.0.0 | Project Generator + MCP HTTP API |
+| **@codeblabdev-max/we-cli** | `cli/package.json` | 7.0.0 | CLI npm 패키지 배포용 |
+| **codeb-web-ui** | `web-ui/package.json` | 7.0.0 | 관리 대시보드 |
+| **@codeblabdev-max/mcp-server** | `v7.0/mcp-server/package.json` | 7.0.0 | MCP API 서버 |
+| **@codeblabdev-max/mcp-proxy** | `v7.0/mcp-proxy/package.json` | 7.0.0 | MCP Proxy (팀원용) |
+| **@codeblabdev-max/we-cli** | `v7.0/cli/package.json` | 7.0.0 | v7.0 CLI |
+| **@codeblabdev-max/analytics** | `v7.0/analytics-sdk/package.json` | 7.0.0 | 분석 SDK |
+| **@codeblabdev-max/edge-runtime** | `v7.0/edge-runtime/package.json` | 7.0.0 | Edge Functions |
 
 ### 버전 관리
 
 ```bash
 # 서버가 항상 버전 기준
-cat v6.0/VERSION  # 6.0.5
+cat v7.0/VERSION  # 7.0.0
 
 # 버전 동기화
 npm run version:sync
 
 # 버전 업데이트
-echo "6.0.6" > v6.0/VERSION
-git add . && git commit -m "chore: bump version to 6.0.6"
+echo "7.0.1" > v7.0/VERSION
+git add . && git commit -m "chore: bump version to 7.0.1"
 git push  # → GitHub Actions 자동 배포
 ```
 
 ---
 
-## API Key 인증 (v6.0)
+## API Key 인증 (v7.0)
 
 ### 형식
 
@@ -389,6 +395,7 @@ we domain setup myapp.codeb.kr     # 도메인 설정
 
 | 버전 | 날짜 | 변경사항 |
 |------|------|----------|
+| 7.0.0 | 2026-01-11 | Claude Code 2.1 통합, Skills/Hooks 시스템, 패키지명 통일 |
 | 6.0.5 | 2026-01-11 | 버전 통일, 레지스트리 동기화, 프로젝트 정리 |
 | 6.0.4 | 2026-01-10 | Self-hosted runner 설정, DB env vars 수정 |
 | 6.0.3 | 2026-01-09 | Container 배포 방식 전환 |

@@ -1,10 +1,11 @@
 # MCP HTTP API Reference
 
-> **버전: 6.0.5** | 업데이트: 2026-01-11
+> **버전: 7.0.0** | 업데이트: 2026-01-11
 
 ## Overview
 
-CodeB v6.0 MCP Server는 Team-based API Key 인증을 사용하는 HTTP API를 제공합니다.
+CodeB v7.0 MCP Server는 Team-based API Key 인증을 사용하는 HTTP API를 제공합니다.
+Claude Code 2.1 통합으로 Skills, Hooks, Agent 기반 배포 자동화를 지원합니다.
 
 **Endpoints:**
 - **Primary:** `https://api.codeb.kr/api`

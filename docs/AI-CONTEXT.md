@@ -1,7 +1,7 @@
 # AI Context - CodeB Server
 
-> **버전: 6.0.5** | 업데이트: 2026-01-11
-> This document is optimized for AI assistants (Claude Code, Cursor, etc.)
+> **버전: 7.0.0** | 업데이트: 2026-01-11
+> This document is optimized for AI assistants (Claude Code 2.1+, Cursor, etc.)
 
 ## System Overview
 
@@ -9,9 +9,10 @@
 name: CodeB Server
 type: Self-hosted Deployment Platform
 style: Vercel-like Blue-Green Slot Deployment
-version: 6.0.5
+version: 7.0.0
 api: MCP HTTP API (https://api.codeb.kr)
 auth: Team-based API Key (codeb_{teamId}_{role}_{token})
+claude_code: 2.1+ (Skills, Hooks, Agent Integration)
 ```
 
 ## Architecture Summary
