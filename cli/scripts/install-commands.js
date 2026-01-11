@@ -50,6 +50,7 @@ const MCP_PROXY_PATH = path.join(PACKAGE_ROOT, 'mcp-proxy', 'index.js');
 
 // MCP Server configuration - HTTP API 방식 (SSH 없음)
 // 패키지에 포함된 mcp-proxy를 직접 실행
+// API Key는 mcp-proxy가 자동으로 찾음 (.env, ~/.codeb/config.json 등)
 const getMcpServerConfig = () => ({
   "codeb-deploy": {
     "command": "node",
@@ -587,8 +588,11 @@ async function install() {
 
   console.log('\n' + '═'.repeat(60));
   console.log('✅ 설치 완료!');
-  console.log('   1. API 키 설정 후 사용 가능');
-  console.log('   2. Claude Code 재시작하여 Skills 자동 로드');
+  console.log('');
+  console.log('🔑 API Key 설정 (필수):');
+  console.log('   we init <YOUR_API_KEY>');
+  console.log('');
+  console.log('🔄 Claude Code 재시작하여 MCP 서버 로드');
   console.log('═'.repeat(60) + '\n');
 }
 
