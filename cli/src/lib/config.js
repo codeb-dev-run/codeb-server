@@ -5,7 +5,7 @@
  * 우선순위: 환경변수 > ~/.codeb/config.json > .env
  */
 
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -192,21 +192,52 @@ function loadConfigFile() {
 /**
  * 설정값 가져오기
  * 우선순위: 환경변수 > 설정파일 > 기본값
+ * @param {string} [key] - 설정 키 (없으면 전체 설정 반환)
  */
 export function getConfig(key) {
+  const fileConfig = loadConfigFile();
+
+  // 키가 없으면 전체 설정 반환
+  if (!key) {
+    return { ...DEFAULTS, ...fileConfig };
+  }
+
   // 1. 환경변수 체크
   if (process.env[key]) {
     return process.env[key];
   }
 
   // 2. 설정 파일 체크
-  const fileConfig = loadConfigFile();
   if (fileConfig[key]) {
     return fileConfig[key];
   }
 
   // 3. 기본값 반환 (빈 문자열일 수 있음)
   return DEFAULTS[key] || '';
+}
+
+/**
+ * 설정 저장하기
+ * @param {object} config - 저장할 설정 객체
+ */
+export function saveConfig(config) {
+  try {
+    // 디렉토리 생성
+    if (!existsSync(CONFIG_DIR)) {
+      mkdirSync(CONFIG_DIR, { recursive: true });
+    }
+
+    // 기존 설정과 병합
+    const existingConfig = loadConfigFile();
+    const mergedConfig = { ...existingConfig, ...config };
+
+    // 파일 저장
+    writeFileSync(CONFIG_FILE, JSON.stringify(mergedConfig, null, 2));
+    return true;
+  } catch (e) {
+    console.error('설정 저장 실패:', e.message);
+    return false;
+  }
 }
 
 /**
@@ -309,6 +340,7 @@ export function getAllConfig() {
 
 export default {
   getConfig,
+  saveConfig,
   validateConfig,
   getServerHost,
   getServerUser,

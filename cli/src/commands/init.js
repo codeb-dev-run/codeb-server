@@ -11,7 +11,8 @@ import { fileURLToPath } from 'url';
 import { existsSync } from 'fs';
 import chalk from 'chalk';
 import ora from 'ora';
-import { getCliVersion } from '../lib/config.js';
+import inquirer from 'inquirer';
+import { getCliVersion, getConfig, saveConfig } from '../lib/config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -330,11 +331,95 @@ async function installSettings(projectPath, spinner) {
 }
 
 /**
+ * API 키 검증
+ */
+async function validateApiKey(apiKey) {
+  if (!apiKey) return false;
+
+  try {
+    const response = await fetch('https://api.codeb.kr/health', {
+      headers: { 'X-API-Key': apiKey }
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * API 키 설정 확인 및 요청
+ */
+async function ensureApiKey() {
+  const config = getConfig();
+
+  // 이미 API 키가 있고 유효한지 확인
+  if (config.CODEB_API_KEY) {
+    const isValid = await validateApiKey(config.CODEB_API_KEY);
+    if (isValid) {
+      return { valid: true, apiKey: config.CODEB_API_KEY };
+    }
+    console.log(chalk.yellow('\n⚠️  저장된 API 키가 유효하지 않습니다.\n'));
+  }
+
+  // API 키가 없거나 유효하지 않은 경우
+  console.log(chalk.cyan.bold('\n╔═══════════════════════════════════════════════════════════╗'));
+  console.log(chalk.cyan.bold('║   CodeB API 키 설정 필요                                   ║'));
+  console.log(chalk.cyan.bold('╚═══════════════════════════════════════════════════════════╝\n'));
+
+  console.log(chalk.white('CodeB API를 사용하려면 API 키가 필요합니다.'));
+  console.log(chalk.gray('API 키는 팀 관리자(owner/admin)에게 요청하세요.\n'));
+  console.log(chalk.gray('형식: codeb_{teamId}_{role}_{token}'));
+  console.log(chalk.gray('예시: codeb_myteam_member_abc123def456\n'));
+
+  const { apiKey } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'apiKey',
+      message: 'API 키를 입력하세요:',
+      validate: (input) => {
+        if (!input) return 'API 키를 입력해주세요.';
+        if (!input.startsWith('codeb_')) return 'API 키는 "codeb_"로 시작해야 합니다.';
+        return true;
+      }
+    }
+  ]);
+
+  // API 키 검증
+  const spinner = ora('API 키 검증 중...').start();
+  const isValid = await validateApiKey(apiKey);
+
+  if (!isValid) {
+    spinner.fail('API 키가 유효하지 않습니다.');
+    console.log(chalk.red('\n팀 관리자에게 올바른 API 키를 요청하세요.\n'));
+    return { valid: false };
+  }
+
+  spinner.succeed('API 키 검증 완료');
+
+  // 설정 저장
+  const newConfig = {
+    ...config,
+    CODEB_API_URL: 'https://api.codeb.kr',
+    CODEB_API_KEY: apiKey
+  };
+  saveConfig(newConfig);
+  console.log(chalk.green('✅ API 키가 ~/.codeb/config.json에 저장되었습니다.\n'));
+
+  return { valid: true, apiKey };
+}
+
+/**
  * we init 명령어 핸들러
  */
 export async function init(options) {
   const projectPath = options.path || process.cwd();
   const projectName = await detectProjectName(projectPath);
+
+  // 0. API 키 확인
+  const apiKeyResult = await ensureApiKey();
+  if (!apiKeyResult.valid) {
+    process.exit(1);
+  }
 
   console.log(chalk.cyan.bold('\n╔═══════════════════════════════════════════════════════════╗'));
   console.log(chalk.cyan.bold('║   CodeB Project Initialization                            ║'));
