@@ -321,6 +321,7 @@ export class SSHClientWrapper {
     const allowedPaths = [
       '/opt/codeb/',
       '/etc/caddy/',
+      '/etc/containers/',  // Quadlet systemd containers
       '/var/log/',
       '/tmp/',
     ];

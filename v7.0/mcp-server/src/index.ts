@@ -122,7 +122,7 @@ import {
 // ============================================================================
 
 const PORT = process.env.PORT || 9101;
-const VERSION = '7.0.10';
+const VERSION = '7.0.11';
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // ============================================================================
