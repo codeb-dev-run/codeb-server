@@ -68,8 +68,8 @@ jobs:
 
       - name: Stop existing container
         run: |
-          sudo docker stop codeb-mcp-api || true
-          sudo docker rm codeb-mcp-api || true
+          docker stop codeb-mcp-api || true
+          docker rm codeb-mcp-api || true
 
       - name: Prepare production dependencies
         run: |
@@ -80,7 +80,7 @@ jobs:
 
       - name: Login to GHCR
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Copy VERSION file to mcp-server
         run: |
@@ -109,7 +109,7 @@ jobs:
           CMD ["node", "dist/index.js"]
           DOCKERFILE
 
-          sudo docker build \
+          docker build \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$VERSION \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
             -f Dockerfile.prod .
@@ -119,8 +119,8 @@ jobs:
       - name: Push image
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          sudo docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$VERSION
-          sudo docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$VERSION
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
       - name: Deploy CodeB API
         run: |
@@ -131,7 +131,7 @@ jobs:
           source /opt/codeb/mcp-server/.env 2>/dev/null || true
 
           # Run container with host network (Docker)
-          sudo docker run -d \
+          docker run -d \
             --name codeb-mcp-api \
             --restart always \
             --network host \
