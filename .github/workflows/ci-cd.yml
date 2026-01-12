@@ -8,7 +8,7 @@ on:
     branches: [main]
     paths:
       - 'cli/**'
-      - 'v7.0/VERSION'
+      - 'VERSION'
     tags:
       - 'v7.*'
   workflow_dispatch:
@@ -33,7 +33,7 @@ jobs:
       - name: Read version from VERSION file
         id: version
         run: |
-          VERSION=$(cat v7.0/VERSION | tr -d '\n')
+          VERSION=$(cat VERSION | tr -d '\n')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "📦 Building version: $VERSION"
 
@@ -79,7 +79,7 @@ jobs:
       - name: Read version from VERSION file
         id: version
         run: |
-          VERSION=$(cat v7.0/VERSION | tr -d '\n')
+          VERSION=$(cat VERSION | tr -d '\n')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Sync version to package.json

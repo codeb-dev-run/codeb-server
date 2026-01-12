@@ -41,8 +41,11 @@ update_package() {
 # CLI package.json
 update_package "$ROOT_DIR/cli/package.json"
 
-# API package.json
-update_package "$ROOT_DIR/api/package.json"
+# MCP Server package.json (v7.0 구조)
+update_package "$ROOT_DIR/mcp-server/package.json"
+
+# MCP Proxy package.json (cli 내부)
+update_package "$ROOT_DIR/cli/mcp-proxy/package.json"
 
 # Root package.json (if exists)
 update_package "$ROOT_DIR/package.json"
@@ -86,7 +89,8 @@ echo ""
 echo "Files updated:"
 echo "  - VERSION"
 echo "  - cli/package.json"
-echo "  - api/package.json"
+echo "  - mcp-server/package.json"
+echo "  - cli/mcp-proxy/package.json"
 echo "  - cli/install.sh"
 echo "  - CLAUDE.md"
 echo "  - ~/.claude/CLAUDE.md"
