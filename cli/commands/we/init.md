@@ -81,7 +81,7 @@ mcp__codeb-deploy__workflow_init
 ## 목적
 새 프로젝트를 위한 서버 인프라를 자동으로 설정합니다:
 - **Blue-Green Slot 생성**: staging/production 환경별 blue/green 슬롯 설정
-- **Quadlet 컨테이너 파일 생성**: Podman systemd 서비스 파일
+- **Docker Compose 파일 생성**: Docker 컨테이너 구성
 - **환경변수 파일 생성**: .env.staging, .env.production
 - **SSOT 레지스트리 등록**: /opt/codeb/registry/
 

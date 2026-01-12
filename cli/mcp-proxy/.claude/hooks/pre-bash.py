@@ -1,3 +1,4 @@
 #!/usr/bin/env python3
-# Empty hook - disabled
-pass
+"""Placeholder hook - delegates to parent"""
+import sys
+sys.exit(0)

@@ -117,8 +117,8 @@
 
 ```bash
 # Hooks가 자동 차단함
-podman rm -f <container>       # 직접 컨테이너 삭제
-podman volume rm <volume>      # 직접 볼륨 삭제
+docker rm -f <container>       # 직접 컨테이너 삭제
+docker volume rm <volume>      # 직접 볼륨 삭제
 docker-compose down -v         # 볼륨 포함 삭제
 rm -rf /opt/codeb/projects/*   # 프로젝트 폴더 삭제
 ssh root@*                     # 직접 SSH 접속 (Admin 제외)
@@ -288,12 +288,12 @@ git push origin main
 
 ```
 ❌ 컨테이너화된 Runner 문제점:
-   - Podman-in-Podman overlay 드라이버 중첩 문제
-   - 호스트 Podman 접근 불가
+   - Docker-in-Docker overlay 드라이버 중첩 문제
+   - 호스트 Docker 접근 불가
    - 복잡한 설정 및 불안정
 
 ✅ 호스트 systemd 서비스 장점:
-   - 호스트의 Podman 직접 사용
+   - 호스트의 Docker 직접 사용
    - 안정적이고 빠른 빌드
    - 간단한 설정 및 유지보수
 ```
@@ -345,21 +345,21 @@ jobs:
     runs-on: self-hosted  # ✅ 올바름
 ```
 
-### Runner에서 Podman 사용
+### Runner에서 Docker 사용
 
 ```yaml
-# Runner는 호스트의 Podman을 sudo로 실행
-- name: Build with Podman
+# Runner는 호스트의 Docker를 실행 (runner 사용자가 docker 그룹에 속함)
+- name: Build with Docker
   run: |
-    sudo podman build -t myimage .
-    sudo podman push myimage
+    docker build -t myimage .
+    docker push myimage
 
-# 컨테이너 관리도 sudo 필요
+# 컨테이너 관리
 - name: Deploy container
   run: |
-    sudo podman stop myapp || true
-    sudo podman rm myapp || true
-    sudo podman run -d --name myapp myimage
+    docker stop myapp || true
+    docker rm myapp || true
+    docker run -d --name myapp myimage
 ```
 
 ---
@@ -381,7 +381,7 @@ jobs:
 │  │ • Next.js   │     │ • Centri-   │     │ • Postgres  │       │
 │  │ • MCP API   │     │   fugo      │     │ • Redis     │       │
 │  │ • Caddy     │     │ • WebSocket │     │             │       │
-│  │ • Podman    │     │             │     │             │       │
+│  │ • Docker    │     │             │     │             │       │
 │  │ • Edge RT   │     │             │     │             │       │
 │  └─────────────┘     └─────────────┘     └─────────────┘       │
 │         │                   │                   │               │
@@ -404,7 +404,7 @@ jobs:
 
 | 역할 | IP | 도메인 | 서비스 |
 |------|-----|--------|--------|
-| **App** | 158.247.203.55 | app.codeb.kr, api.codeb.kr | Next.js, MCP API v6.0, Caddy, Podman, Edge Runtime |
+| **App** | 158.247.203.55 | app.codeb.kr, api.codeb.kr | Next.js, MCP API v7.0, Caddy, Docker, Edge Runtime |
 | **Streaming** | 141.164.42.213 | ws.codeb.kr | Centrifugo (WebSocket) |
 | **Storage** | 64.176.226.119 | db.codeb.kr | PostgreSQL, Redis |
 | **Backup** | 141.164.37.63 | backup.codeb.kr | ENV 백업, Prometheus, Grafana |

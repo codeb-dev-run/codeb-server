@@ -1,6 +1,6 @@
 # System Architecture
 
-> **버전: 7.0.0** | 업데이트: 2026-01-11
+> **버전: 7.0.24** | 업데이트: 2026-01-12
 
 ## Overview
 
@@ -21,10 +21,10 @@ CodeB Server는 **Vercel 수준의 Self-hosted 배포 플랫폼**입니다:
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| Container Runtime | Podman 4.x | Rootless containers |
+| Container Runtime | Docker | Production containers |
 | Reverse Proxy | Caddy 2.x | HTTPS + Auto SSL |
 | DNS | PowerDNS 4.x | Dynamic DNS management |
-| Service Manager | systemd + Quadlet | Container as systemd units |
+| Service Manager | systemd + Docker | Container management |
 | Database | PostgreSQL 15 | Shared database |
 | Cache | Redis 7 | Shared cache |
 | WebSocket | Centrifugo | Real-time communication |
@@ -188,7 +188,7 @@ const greenPort = basePort + 1; // e.g., 3051
 4. API → Load slot registry
 5. API → Determine target slot (opposite of active)
 6. API → SSH to app server
-7. API → podman pull + podman run
+7. API → docker pull + docker run
 8. API → Health check
 9. API → Update slot registry
 10. API → Return preview URL
@@ -385,7 +385,7 @@ Examples:
 ### Labels
 
 ```bash
-podman run \
+docker run \
   -l "codeb.project=myapp" \
   -l "codeb.environment=staging" \
   -l "codeb.slot=blue" \
@@ -398,7 +398,7 @@ podman run \
 모든 컨테이너는 `codeb-main` 네트워크에 연결:
 
 ```bash
-podman network create codeb-main
+docker network create codeb-main
 ```
 
 ---
@@ -418,12 +418,12 @@ podman network create codeb-main
 
 ```
 ❌ Containerized Runner 문제점:
-   - Podman-in-Podman overlay 드라이버 중첩 문제
-   - 호스트 Podman 접근 불가
-   - 복잡한 설정 및 불안정
+   - Docker-in-Docker 설정 복잡
+   - 볼륨 마운트 제한
+   - 불안정한 빌드 환경
 
 ✅ Host systemd 서비스 장점:
-   - 호스트의 Podman 직접 사용
+   - 호스트의 Docker 직접 사용
    - 안정적이고 빠른 빌드
    - 간단한 설정 및 유지보수
 ```
@@ -436,7 +436,7 @@ podman network create codeb-main
 
 | Component | Method | Location |
 |-----------|--------|----------|
-| Containers | podman logs | journalctl |
+| Containers | docker logs | journalctl |
 | Caddy | Access logs | /var/log/caddy/ |
 | MCP API | Console | journalctl -u codeb-mcp-api |
 | Audit | SQLite | /var/lib/codeb/audit.db |

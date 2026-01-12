@@ -68,7 +68,7 @@ mcp__codeb-deploy__health_check 호출
 
 ## 서버 정보
 - **App 서버**: 158.247.203.55 (app.codeb.kr)
-- **컨테이너 런타임**: Podman + Quadlet
+- **컨테이너 런타임**: Docker
 - **오케스트레이션**: systemd 서비스
 
 ## 관련 명령어

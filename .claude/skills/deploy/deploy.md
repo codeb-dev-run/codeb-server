@@ -88,9 +88,9 @@ mcp__codeb-deploy__health_check 호출
 - `mcp__codeb-deploy__health_check` - 서버 상태 확인
 
 ## 서버 정보
-- **App 서버**: 158.247.203.55 (app.codeb.kr)
-- **컨테이너 런타임**: Podman + Quadlet
-- **오케스트레이션**: systemd 서비스
+- **App 서버**: 158.247.203.55 (api.codeb.kr)
+- **컨테이너 런타임**: Docker
+- **오케스트레이션**: Docker Compose / GitHub Actions
 
 ## 관련 명령어
 - `/we:promote` - Production 트래픽 전환

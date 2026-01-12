@@ -16,7 +16,7 @@ CodeB 통합 시스템의 전체 상태를 확인하고 성능 지표를 표시�
 ### Execution Layer (CodeB-1.0 49개 에이전트)
 - ✅ Orchestrator (1개): 전술 조율
 - ✅ Domain Leads (4개): Frontend, Backend, Infrastructure, Quality
-- ✅ Specialists (11개): React, API, DB, WebSocket, Podman, Security 등
+- ✅ Specialists (11개): React, API, DB, WebSocket, Docker, Security 등
 - ✅ Workers (33개): 실제 코드 작성 및 처리
 
 ### Persistence Layer (MCP Contest Continuity)

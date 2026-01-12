@@ -34,7 +34,7 @@ workflow init 실행 시:
 │   ├── {project}-staging.json    # Staging 슬롯 레지스트리
 │   └── {project}-production.json # Production 슬롯 레지스트리
 ├── /opt/codeb/projects/{project}/
-│   ├── quadlet/*.container       # Podman Quadlet 파일
+│   ├── docker-compose.yml        # Docker Compose 파일
 │   ├── .env.staging              # Staging 환경변수
 │   └── .env.production           # Production 환경변수
 └── /opt/codeb/registry/ssot.json # SSOT 업데이트

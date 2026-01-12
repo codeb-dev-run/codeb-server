@@ -202,12 +202,12 @@ jobs:
 
       - name: Login to GHCR
         run: |
-          echo "${{ secrets.GHCR_PAT }}" | sudo podman login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Build and Push
         run: |
-          sudo podman build -t ghcr.io/${{ github.repository }}:${{ github.sha }} .
-          sudo podman push ghcr.io/${{ github.repository }}:${{ github.sha }}
+          docker build -t ghcr.io/${{ github.repository }}:${{ github.sha }} .
+          docker push ghcr.io/${{ github.repository }}:${{ github.sha }}
 
       - name: Deploy
         run: |

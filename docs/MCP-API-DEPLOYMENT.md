@@ -41,12 +41,12 @@ jobs:
 
       - name: Login to GHCR
         run: |
-          echo "${{ secrets.GHCR_PAT }}" | sudo podman login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Build and Push
         run: |
-          sudo podman build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} .
-          sudo podman push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} .
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
       - name: Deploy via CodeB MCP API
         run: |
@@ -194,7 +194,7 @@ Git Push
    ↓
 GitHub Actions (self-hosted runner)
    ↓
-Podman Build → ghcr.io push
+Docker Build → ghcr.io push
    ↓
 MCP API 호출 (CODEB_API_KEY)
    ↓

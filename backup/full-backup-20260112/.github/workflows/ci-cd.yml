@@ -1,0 +1,100 @@
+# CodeB CLI v7.0 CI/CD Pipeline
+# Publish to GitHub Package Registry using Self-hosted Runner
+
+name: CodeB CLI v7.0 CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cli/**'
+      - 'v7.0/VERSION'
+    tags:
+      - 'v7.*'
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '20.x'
+
+jobs:
+  # CLI 빌드 및 검증 (Self-hosted Runner)
+  build-verify:
+    name: Build & Verify CLI
+    runs-on: self-hosted
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Read version from VERSION file
+        id: version
+        run: |
+          VERSION=$(cat v7.0/VERSION | tr -d '\n')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Building version: $VERSION"
+
+      - name: Sync version to package.json
+        working-directory: ./cli
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # Update version in package.json
+          jq --arg v "$VERSION" '.version = $v' package.json > package.tmp.json
+          mv package.tmp.json package.json
+          echo "✅ package.json version synced to $VERSION"
+
+      - name: Install dependencies
+        working-directory: ./cli
+        run: npm ci
+
+      - name: Verify CLI
+        working-directory: ./cli
+        run: |
+          echo "✅ Build successful"
+          echo "📦 Package info:"
+          cat package.json | grep -E '"name"|"version"'
+
+  # GitHub Package Registry 발행 (Self-hosted Runner)
+  publish:
+    name: Publish to GitHub Packages
+    runs-on: self-hosted
+    needs: build-verify
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js for GitHub Packages
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@codeblabdev-max'
+
+      - name: Read version from VERSION file
+        id: version
+        run: |
+          VERSION=$(cat v7.0/VERSION | tr -d '\n')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Sync version to package.json
+        working-directory: ./cli
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          jq --arg v "$VERSION" '.version = $v' package.json > package.tmp.json
+          mv package.tmp.json package.json
+
+      - name: Install dependencies
+        working-directory: ./cli
+        run: npm ci
+
+      - name: Publish to GitHub Packages
+        working-directory: ./cli
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

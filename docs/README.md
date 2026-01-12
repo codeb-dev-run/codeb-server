@@ -81,7 +81,7 @@ codeb-server/
 │  │ • Next.js   │     │ • Centri-   │     │ • Postgres  │       │
 │  │ • MCP API   │     │   fugo      │     │ • Redis     │       │
 │  │ • Caddy     │     │ • WebSocket │     │             │       │
-│  │ • Podman    │     │             │     │             │       │
+│  │ • Docker    │     │             │     │             │       │
 │  │ • Edge RT   │     │             │     │             │       │
 │  └─────────────┘     └─────────────┘     └─────────────┘       │
 │         │                   │                   │               │
@@ -304,8 +304,8 @@ jobs:
 
       - name: Build & Push
         run: |
-          sudo podman build -t ghcr.io/${{ github.repository }}:${{ github.sha }} .
-          sudo podman push ghcr.io/${{ github.repository }}:${{ github.sha }}
+          docker build -t ghcr.io/${{ github.repository }}:${{ github.sha }} .
+          docker push ghcr.io/${{ github.repository }}:${{ github.sha }}
 
       - name: Deploy via CodeB API
         run: |

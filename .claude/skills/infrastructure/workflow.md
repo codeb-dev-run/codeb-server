@@ -1,6 +1,6 @@
 ---
 name: workflow
-description: "Quadlet 및 GitHub Actions CI/CD 워크플로우 생성"
+description: "Docker 및 GitHub Actions CI/CD 워크플로우 생성"
 agent: Bash
 context: fork
 allowed-tools:
@@ -15,7 +15,7 @@ allowed-tools:
 # /we:workflow - CI/CD 워크플로우
 
 ## 목적
-프로젝트의 Quadlet 컨테이너 설정 및 GitHub Actions 워크플로우를 생성합니다.
+프로젝트의 Docker 컨테이너 설정 및 GitHub Actions 워크플로우를 생성합니다.
 
 ## 중요 규칙
 - **모든 응답은 한글로 작성**
@@ -41,10 +41,9 @@ mcp__codeb-deploy__workflow_scan 호출
 
 ## 생성 파일
 
-### Quadlet 파일
-- `{project}.container` - 컨테이너 정의
-- `{project}.network` - 네트워크 설정
-- `{project}.volume` - 볼륨 설정
+### Docker 파일
+- `Dockerfile` - 컨테이너 이미지 정의
+- `docker-compose.yml` - 서비스 구성
 
 ### GitHub Actions
 - `.github/workflows/deploy.yml` - CI/CD 파이프라인

@@ -153,14 +153,14 @@ Skills 파일 수정 시 Claude Code 재시작 없이 즉시 반영됩니다.
   "permissions": {
     "allow": [
       "Bash(we *)",
-      "Bash(podman ps *)",
+      "Bash(docker ps *)",
       "Bash(git *)",
       "Bash(npm *)",
       "mcp__codeb-deploy__*"
     ],
     "deny": [
-      "Bash(podman rm -f *)",
-      "Bash(podman volume rm *)",
+      "Bash(docker rm -f *)",
+      "Bash(docker volume rm *)",
       "Bash(rm -rf /opt/codeb *)"
     ]
   },
@@ -281,7 +281,7 @@ Skills 파일 수정 시 Claude Code 재시작 없이 즉시 반영됩니다.
 │  │             │     │             │     │             │       │
 │  │ • MCP API   │     │ • Centri-   │     │ • Postgres  │       │
 │  │ • Caddy     │     │   fugo      │     │ • Redis     │       │
-│  │ • Podman    │     │ • WebSocket │     │             │       │
+│  │ • Docker    │     │ • WebSocket │     │             │       │
 │  │ • Edge RT   │     │             │     │             │       │
 │  └─────────────┘     └─────────────┘     └─────────────┘       │
 │         │                   │                   │               │
@@ -300,7 +300,7 @@ Skills 파일 수정 시 Claude Code 재시작 없이 즉시 반영됩니다.
 
 | 역할 | IP | 도메인 | 서비스 |
 |------|-----|--------|--------|
-| **App** | 158.247.203.55 | api.codeb.kr | MCP API v7.0, Caddy, Podman |
+| **App** | 158.247.203.55 | api.codeb.kr | MCP API v7.0, Caddy, Docker |
 | **Streaming** | 141.164.42.213 | ws.codeb.kr | Centrifugo (WebSocket) |
 | **Storage** | 64.176.226.119 | db.codeb.kr | PostgreSQL, Redis |
 | **Backup** | 141.164.37.63 | backup.codeb.kr | Prometheus, Grafana |
@@ -348,8 +348,8 @@ viewer - 조회만
 
 ```bash
 # Hooks가 자동 차단
-podman rm -f <container>       # 직접 컨테이너 삭제
-podman volume rm <volume>      # 직접 볼륨 삭제
+docker rm -f <container>       # 직접 컨테이너 삭제
+docker volume rm <volume>      # 직접 볼륨 삭제
 rm -rf /opt/codeb/*            # 프로젝트 폴더 삭제
 ssh root@*                     # 직접 SSH 접속 (Admin 제외)
 ```

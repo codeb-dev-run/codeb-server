@@ -1,14 +1,39 @@
 {
-  "name": "@codeblabdev-max/mcp-proxy",
-  "version": "7.0.24",
-  "description": "CodeB MCP Server v7.0 - HTTP API Proxy (No SSH, API Key Auth Only)",
+  "name": "codeb-mcp-proxy",
+  "version": "7.0.28",
+  "description": "CodeB MCP Server v7.0 - HTTP API Proxy for Claude Code",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "codeb-mcp-proxy": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/codeblabdev-max/codeb-server.git",
+    "directory": "cli/mcp-proxy"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsx watch src/index.ts"
+    "dev": "tsx watch src/index.ts",
+    "prepublishOnly": "npm run build"
   },
+  "keywords": [
+    "mcp",
+    "claude",
+    "codeb",
+    "deployment",
+    "blue-green"
+  ],
+  "author": "CodeB Team",
+  "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"
   },

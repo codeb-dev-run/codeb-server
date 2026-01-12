@@ -1,0 +1,167 @@
+# CodeB v7.0 HTTP API Server Deployment
+# Deploys to api.codeb.kr (158.247.203.55)
+
+name: Deploy API Server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'v7.0/mcp-server/**'
+      - 'v7.0/VERSION'
+      - '.github/workflows/deploy-api.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+env:
+  NODE_VERSION: '20.x'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/codeb-api
+
+jobs:
+  # Build: Self-hosted runner on App server
+  build:
+    name: Build & Deploy (Direct)
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version from VERSION file
+        id: version
+        run: |
+          VERSION=$(cat v7.0/VERSION | tr -d '\n')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Building version: $VERSION"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build TypeScript (Host-based)
+        run: |
+          cd v7.0/mcp-server
+          npm ci
+          npm run build
+          echo "✅ TypeScript build complete"
+          ls -la dist/
+
+      - name: Stop legacy node service (if any)
+        run: |
+          if sudo systemctl is-active codeb-mcp-api.service 2>/dev/null; then
+            echo "⚠️ Stopping legacy node service..."
+            sudo systemctl stop codeb-mcp-api.service
+            sudo systemctl disable codeb-mcp-api.service
+          fi
+
+      - name: Stop existing container
+        run: |
+          sudo podman stop codeb-mcp-api 2>/dev/null || true
+          sudo podman rm codeb-mcp-api 2>/dev/null || true
+
+      - name: Prepare production dependencies
+        run: |
+          cd v7.0/mcp-server
+          rm -rf node_modules
+          npm ci --omit=dev
+          echo "✅ Production dependencies ready"
+
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Build minimal Docker image
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          cd v7.0/mcp-server
+
+          # Create minimal Dockerfile for pre-built code
+          cat > Dockerfile.prod <<'DOCKERFILE'
+          FROM node:20-alpine
+          RUN addgroup -g 1001 -S nodejs && adduser -S codeb -u 1001 -G nodejs
+          WORKDIR /app
+          COPY --chown=codeb:nodejs dist ./dist
+          COPY --chown=codeb:nodejs node_modules ./node_modules
+          COPY --chown=codeb:nodejs package.json ./
+          RUN mkdir -p /app/logs && chown codeb:nodejs /app/logs
+          ENV NODE_ENV=production PORT=9101
+          HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- http://localhost:9101/health || exit 1
+          USER codeb
+          EXPOSE 9101
+          CMD ["node", "dist/index.js"]
+          DOCKERFILE
+
+          sudo podman build \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$VERSION \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+            -f Dockerfile.prod .
+
+          rm Dockerfile.prod
+
+      - name: Push image
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          sudo podman push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$VERSION
+          sudo podman push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Deploy CodeB API
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          echo "🚀 Deploying CodeB API v$VERSION..."
+
+          # Load DB credentials
+          source /opt/codeb/mcp-server/.env 2>/dev/null || true
+
+          # Run container with host network (avoids Podman bridge network issues)
+          sudo podman run -d \
+            --name codeb-mcp-api \
+            --restart always \
+            --network host \
+            -e NODE_ENV=production \
+            -e PORT=9101 \
+            -e LOG_DIR=/app/logs \
+            -e SSH_PRIVATE_KEY_PATH=/app/ssh/id_rsa \
+            -e CODEB_DB_HOST="${CODEB_DB_HOST:-db.codeb.kr}" \
+            -e CODEB_DB_PORT="${CODEB_DB_PORT:-5432}" \
+            -e CODEB_DB_NAME="${CODEB_DB_NAME:-codeb}" \
+            -e CODEB_DB_USER="${CODEB_DB_USER:-codeb}" \
+            -e CODEB_DB_PASSWORD="${CODEB_DB_PASSWORD}" \
+            -v /opt/codeb/logs:/app/logs \
+            -v /opt/codeb/registry:/opt/codeb/registry \
+            -v /opt/codeb/ssh:/app/ssh:ro \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$VERSION
+
+          # Health check
+          echo "⏳ Waiting for health check..."
+          sleep 5
+
+          for i in 1 2 3 4 5; do
+            if curl -sf http://localhost:9101/health; then
+              echo ""
+              echo "✅ Health check passed!"
+              break
+            fi
+            echo "Retry $i/5..."
+            sleep 2
+          done
+
+          # Verify version
+          DEPLOYED_VERSION=$(curl -sf http://localhost:9101/health | jq -r '.version')
+          echo "✅ Deployed version: $DEPLOYED_VERSION"
+
+      - name: Verify external access
+        run: |
+          sleep 3
+          curl -sf https://api.codeb.kr/health && echo "✅ External access OK" || echo "⚠️ External access check failed"

@@ -491,7 +491,7 @@ CodeB 인프라 상태를 확인합니다.
       "app": {
         "ip": "158.247.203.55",
         "status": "healthy",
-        "services": ["caddy", "podman", "mcp-api"]
+        "services": ["caddy", "docker", "mcp-api"]
       },
       "streaming": {
         "ip": "141.164.42.213",

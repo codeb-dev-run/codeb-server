@@ -20,7 +20,7 @@ MCP codeb-deploy를 통해 컨테이너, 서비스, Blue-Green 슬롯 상태를 
 
 ## 점검 항목
 - Blue-Green 슬롯 상태
-- 컨테이너 상태 (Podman/Quadlet)
+- 컨테이너 상태 (Docker)
 - 서비스 상태 (systemd)
 - 데이터베이스 연결 (PostgreSQL, Redis)
 - SSL 인증서 유효성

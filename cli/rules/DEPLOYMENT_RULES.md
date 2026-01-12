@@ -39,7 +39,7 @@ as any                             // any로 캐스팅
 ```bash
 # ❌ 절대 금지
 # --network 플래그 제거 (CNI 에러 시에도)
-podman run app  # 원래 --network codeb 있었으면 유지
+docker run app  # 원래 --network codeb 있었으면 유지
 
 # IP 직접 하드코딩 금지
 DATABASE_URL="postgresql://10.88.0.5:5432/db"  # ❌
@@ -148,8 +148,8 @@ end_deployment_log "SUCCESS"  # 또는 "FAILED"
 ```
 ❌ 잘못된 대응: --network 플래그 제거
 ✅ 올바른 대응:
-1. podman network ls 로 네트워크 확인
-2. podman network create codeb 로 네트워크 생성
+1. docker network ls 로 네트워크 확인
+2. docker network create codeb 로 네트워크 생성
 3. 기존 컨테이너 재시작
 ```
 
@@ -157,9 +157,9 @@ end_deployment_log "SUCCESS"  # 또는 "FAILED"
 ```
 ❌ 잘못된 대응: || true 추가
 ✅ 올바른 대응:
-1. DB 컨테이너 상태 확인: podman ps
-2. DB 로그 확인: podman logs postgres-container
-3. 네트워크 연결 확인: podman inspect postgres-container
+1. DB 컨테이너 상태 확인: docker ps
+2. DB 로그 확인: docker logs postgres-container
+3. 네트워크 연결 확인: docker inspect postgres-container
 4. pg_hba.conf 확인 및 수정
 ```
 

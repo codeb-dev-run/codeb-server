@@ -37,7 +37,7 @@ mcp__codeb-deploy__workflow_init {
 
 ## 생성되는 파일
 - `.github/workflows/deploy.yml` - GitHub Actions 워크플로우
-- `quadlet/*.container` - Podman Quadlet 파일
+- `docker-compose.yml` - Docker Compose 파일
 - `.env.staging`, `.env.production` - 환경변수 파일
 
 ## 관련 스킬

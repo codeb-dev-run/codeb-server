@@ -243,16 +243,16 @@ if __name__ == "__main__":
   "permissions": {
     "allow": [
       "Bash(we *)",
-      "Bash(podman ps *)",
-      "Bash(podman logs *)",
+      "Bash(docker ps *)",
+      "Bash(docker logs *)",
       "Bash(git *)",
       "Bash(npm *)",
       "Bash(pnpm *)",
       "mcp__codeb-deploy__*"
     ],
     "deny": [
-      "Bash(podman rm -f *)",
-      "Bash(podman volume rm *)",
+      "Bash(docker rm -f *)",
+      "Bash(docker volume rm *)",
       "Bash(ssh root@*)",
       "Bash(rm -rf /opt/codeb/*)"
     ]
