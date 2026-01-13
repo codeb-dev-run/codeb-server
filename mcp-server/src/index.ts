@@ -65,11 +65,11 @@ import {
   sslStatusTool,
 } from './tools/domain.js';
 
-// Tools - Workflow (Project Initialization)
+// Tools - Project (Initialization & Scan)
 import {
-  workflowInitTool,
-  workflowScanTool,
-} from './tools/workflow.js';
+  projectInitTool,
+  projectScanTool,
+} from './tools/project.js';
 
 // ============================================================================
 // Configuration
@@ -257,9 +257,9 @@ const TOOLS: Record<string, {
   domain_delete: { handler: (p, a) => domainDeleteTool.execute(p, a), permission: 'domain.manage' },
   ssl_status: { handler: (p, a) => sslStatusTool.execute(p, a), permission: 'domain.view' },
 
-  // Workflow (Project Initialization)
-  workflow_init: { handler: (p, a) => workflowInitTool.execute(p, a), permission: 'deploy.create' },
-  workflow_scan: { handler: (p, a) => workflowScanTool.execute(p, a), permission: 'project.view' },
+  // Project (Initialization & Scan) - /we:quick에서 내부적으로 호출
+  workflow_init: { handler: (p, a) => projectInitTool.execute(p, a), permission: 'deploy.create' },
+  workflow_scan: { handler: (p, a) => projectScanTool.execute(p, a), permission: 'project.view' },
 };
 
 // ============================================================================
