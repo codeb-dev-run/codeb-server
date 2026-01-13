@@ -4,7 +4,8 @@
   "description": "/we: Web Deploy CLI - MCP-First + Skills Auto-Activation",
   "type": "module",
   "bin": {
-    "we": "./bin/we.js"
+    "we": "./bin/we.js",
+    "codeb-mcp": "./bin/codeb-mcp.js"
   },
   "main": "./bin/we.js",
   "files": [
@@ -13,7 +14,6 @@
     "commands",
     "scripts",
     "rules",
-    "mcp-proxy",
     "skills"
   ],
   "repository": {

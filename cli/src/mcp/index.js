@@ -20,19 +20,25 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
-  Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { readFileSync, existsSync } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+// Get version from package.json
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const pkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-8'));
+const VERSION = pkg.version;
 
 // ============================================================================
 // Configuration
 // ============================================================================
 
 // Load API key from multiple sources (priority order)
-function loadApiKey(): string {
+function loadApiKey() {
   // 1. First check project .env file (highest priority - project specific)
   const projectEnvPath = join(process.cwd(), '.env');
   if (existsSync(projectEnvPath)) {
@@ -102,7 +108,7 @@ if (!API_KEY) {
   console.error('      export CODEB_API_KEY=codeb_팀ID_역할_토큰');
   console.error('');
   console.error('   3. we init 명령어 실행 (글로벌 설정):');
-  console.error('      npx @codeblabdev-max/we-cli init codeb_팀ID_역할_토큰');
+  console.error('      we init codeb_팀ID_역할_토큰');
   console.error('');
   console.error('═'.repeat(60));
   process.exit(1);
@@ -112,13 +118,7 @@ if (!API_KEY) {
 // HTTP API Client
 // ============================================================================
 
-interface ApiResponse {
-  success: boolean;
-  error?: string;
-  [key: string]: unknown;
-}
-
-async function callApi(tool: string, params: Record<string, unknown> = {}): Promise<ApiResponse> {
+async function callApi(tool, params = {}) {
   const response = await fetch(`${API_URL}/api/tool`, {
     method: 'POST',
     headers: {
@@ -136,7 +136,7 @@ async function callApi(tool: string, params: Record<string, unknown> = {}): Prom
   return response.json();
 }
 
-async function checkHealth(): Promise<boolean> {
+async function checkHealth() {
   try {
     const response = await fetch(`${API_URL}/health`);
     const data = await response.json();
@@ -150,7 +150,7 @@ async function checkHealth(): Promise<boolean> {
 // MCP Tool Definitions
 // ============================================================================
 
-const TOOLS: Tool[] = [
+const TOOLS = [
   // ────────────────────────────────────────────────────────────────────────────
   // Core Deployment Tools
   // ────────────────────────────────────────────────────────────────────────────
@@ -331,7 +331,7 @@ const TOOLS: Tool[] = [
 const server = new Server(
   {
     name: 'codeb-deploy',
-    version: '7.0.7',
+    version: VERSION,
   },
   {
     capabilities: {
@@ -351,7 +351,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     // Map MCP tool names to API tool names
-    const apiToolMap: Record<string, string> = {
+    const apiToolMap = {
       deploy_project: 'deploy',
       slot_promote: 'promote',
       workflow_init: 'workflow_init',
@@ -361,7 +361,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
 
     const apiTool = apiToolMap[name] || name;
-    const result = await callApi(apiTool, args as Record<string, unknown>);
+    const result = await callApi(apiTool, args);
 
     if (!result.success) {
       return {
@@ -401,7 +401,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 // Main
 // ============================================================================
 
-async function main() {
+export async function startMcpServer() {
   // Check API health before starting
   const healthy = await checkHealth();
   if (!healthy) {
@@ -413,12 +413,15 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  console.error(`CodeB MCP Proxy v7.0.28 started`);
+  console.error(`CodeB MCP Proxy v${VERSION} started`);
   console.error(`API URL: ${API_URL}`);
   console.error(`API Key: ${API_KEY.slice(0, 20)}...`);
 }
 
-main().catch((error) => {
-  console.error('Failed to start MCP server:', error);
-  process.exit(1);
-});
+// Run if called directly
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  startMcpServer().catch((error) => {
+    console.error('Failed to start MCP server:', error);
+    process.exit(1);
+  });
+}
