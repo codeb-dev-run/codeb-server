@@ -236,9 +236,7 @@ async function executeWorkflowInit(
 ${domain} {
   reverse_proxy localhost:${ports.blue} localhost:${ports.green} {
     lb_policy first
-    health_uri /api/health
-    health_interval 10s
-    fail_duration 30s
+    fail_duration 10s
   }
   encode gzip
   log {
@@ -257,6 +255,18 @@ ${domain} {
         const subdomain = domain.replace('.codeb.kr', '');
         await appSSH.exec(`pdnsutil add-record codeb.kr ${subdomain} A 300 ${SERVERS.app.ip} 2>/dev/null || true`);
         await appSSH.exec(`pdnsutil rectify-zone codeb.kr 2>/dev/null || true`);
+      }
+
+      // SSL 인증서 발급 대기 (최대 30초)
+      // Caddy가 자동으로 Let's Encrypt 인증서를 발급함
+      for (let i = 0; i < 10; i++) {
+        await new Promise(resolve => setTimeout(resolve, 3000)); // 3초 대기
+        const certCheck = await appSSH.exec(
+          `curl -sI https://${domain} --connect-timeout 5 2>&1 | head -1 || echo "pending"`
+        );
+        if (certCheck.stdout.includes('HTTP/') || certCheck.stdout.includes('200')) {
+          break; // 인증서 발급 완료
+        }
       }
     });
 
