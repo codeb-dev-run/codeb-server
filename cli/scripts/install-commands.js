@@ -47,62 +47,55 @@ const CLAUDE_HOOKS_DIR = path.join(CLAUDE_DIR, 'hooks');
 const CLAUDE_SKILLS_DIR = path.join(CLAUDE_DIR, 'skills');
 
 // ================================================================
-// 1. Install MCP Server (시스템 전역 명령어 사용)
+// 1. Install MCP Server (claude mcp add 명령어 사용)
 // ================================================================
 async function installMcpServer() {
-  console.log('\n🔌 1. MCP Server 등록 (시스템 전역)...');
+  console.log('\n🔌 1. MCP Server 등록 (claude mcp add)...');
 
   try {
-    // Ensure .claude directory exists
-    await fs.mkdir(CLAUDE_DIR, { recursive: true });
+    const { execSync } = await import('child_process');
 
-    let settings = {};
+    // Get the installed package path
+    const mcpPath = path.join(PACKAGE_ROOT, 'bin', 'codeb-mcp.js');
 
-    // Read existing settings
-    if (existsSync(CLAUDE_SETTINGS)) {
-      try {
-        const content = await fs.readFile(CLAUDE_SETTINGS, 'utf-8');
-        settings = JSON.parse(content);
-      } catch {
-        console.log('   ⚠️  기존 settings.json 파싱 실패. 새로 생성합니다.');
+    // Check if already registered
+    try {
+      const listOutput = execSync('claude mcp list 2>&1', { encoding: 'utf-8', timeout: 30000 });
+      if (listOutput.includes('codeb-deploy')) {
+        // Remove existing registration first (may be old path)
+        console.log('   📋 기존 MCP 설정 제거 중...');
+        try {
+          execSync('claude mcp remove codeb-deploy -s user 2>&1', { encoding: 'utf-8', timeout: 10000 });
+        } catch {
+          // Ignore if not found in user scope
+        }
+        try {
+          execSync('claude mcp remove codeb-deploy -s project 2>&1', { encoding: 'utf-8', timeout: 10000 });
+        } catch {
+          // Ignore if not found in project scope
+        }
       }
+    } catch {
+      // claude mcp list failed - Claude Code CLI may not be available
+      console.log('   ⚠️  Claude Code CLI를 찾을 수 없습니다. 수동 등록이 필요합니다.');
+      console.log('   📋 수동 등록: claude mcp add codeb-deploy -s user -e CODEB_API_URL=https://api.codeb.kr -- node ' + mcpPath);
+      return { registered: false, updated: false, manual: true };
     }
 
-    // Ensure mcpServers object exists
-    if (!settings.mcpServers) {
-      settings.mcpServers = {};
-    }
+    // Register MCP server using claude mcp add
+    const addCommand = `claude mcp add codeb-deploy -s user -e CODEB_API_URL=https://api.codeb.kr -- node "${mcpPath}"`;
 
-    // MCP Server 설정 - 전역 설치된 codeb-mcp 명령어 사용
-    const mcpConfig = {
-      "command": "codeb-mcp",
-      "env": {
-        "CODEB_API_URL": "https://api.codeb.kr"
-      }
-    };
-
-    // Check if already registered with same config
-    const existing = settings.mcpServers['codeb-deploy'];
-    if (existing && existing.command === 'codeb-mcp') {
-      console.log('   ℹ️  codeb-deploy MCP 서버가 이미 등록되어 있습니다.');
+    try {
+      execSync(addCommand, { encoding: 'utf-8', timeout: 30000 });
+      console.log('   ✅ codeb-deploy MCP 서버 등록 완료');
+      console.log('   📍 명령어: node ' + mcpPath);
+      console.log('   📍 범위: user (모든 프로젝트에서 사용 가능)');
+      return { registered: true, updated: false };
+    } catch (err) {
+      console.error('   ❌ MCP 등록 실패:', err.message);
+      console.log('   📋 수동 등록: ' + addCommand);
       return { registered: false, updated: false };
     }
-
-    // Backup old config if different
-    if (existing) {
-      console.log('   📋 기존 MCP 설정 업데이트 (전역 명령어 방식으로)');
-    }
-
-    // Add/Update MCP server
-    settings.mcpServers['codeb-deploy'] = mcpConfig;
-
-    // Write settings
-    await fs.writeFile(CLAUDE_SETTINGS, JSON.stringify(settings, null, 2));
-    console.log('   ✅ codeb-deploy MCP 서버 등록 완료');
-    console.log('   📍 명령어: codeb-mcp (전역 설치)');
-    console.log('   📍 위치: ~/.claude/settings.json');
-
-    return { registered: true, updated: !!existing };
 
   } catch (err) {
     console.error('   ❌ MCP 서버 등록 오류:', err.message);
@@ -407,7 +400,7 @@ async function setupApiKeyDir() {
 // ================================================================
 async function install() {
   console.log('\n' + '═'.repeat(60));
-  console.log('🚀 @codeblabdev-max/we-cli 설치 (v7.0.32)');
+  console.log('🚀 @codeblabdev-max/we-cli 설치 (v7.0.35)');
   console.log('═'.repeat(60));
 
   const results = {

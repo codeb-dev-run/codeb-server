@@ -1,14 +1,3 @@
 {
-  "mcpServers": {
-    "codeb-deploy": {
-      "command": "node",
-      "args": [
-        "/Users/admin/new_project/codeb-server/cli/mcp-proxy/dist/index.js"
-      ],
-      "env": {
-        "CODEB_API_URL": "https://api.codeb.kr",
-        "CODEB_API_KEY": "codeb_codeb_member_204BXDkkCXzJm7is_wPjHvZ0"
-      }
-    }
-  }
+  "mcpServers": {}
 }

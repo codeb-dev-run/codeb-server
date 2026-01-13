@@ -30,8 +30,13 @@ import { fileURLToPath } from 'url';
 // Get version from package.json
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const pkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-8'));
-const VERSION = pkg.version;
+let VERSION = '7.0.33';
+try {
+  const pkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-8'));
+  VERSION = pkg.version;
+} catch {
+  // Use default version
+}
 
 // ============================================================================
 // Configuration
@@ -40,17 +45,17 @@ const VERSION = pkg.version;
 // Load API key from multiple sources (priority order)
 function loadApiKey() {
   // 1. First check project .env file (highest priority - project specific)
-  const projectEnvPath = join(process.cwd(), '.env');
-  if (existsSync(projectEnvPath)) {
-    try {
+  try {
+    const projectEnvPath = join(process.cwd(), '.env');
+    if (existsSync(projectEnvPath)) {
       const content = readFileSync(projectEnvPath, 'utf-8');
       const match = content.match(/^CODEB_API_KEY=(.+)$/m);
       if (match && match[1]) {
         return match[1].trim();
       }
-    } catch {
-      // Ignore read errors
     }
+  } catch {
+    // Ignore read errors
   }
 
   // 2. Then check environment variable
@@ -59,31 +64,31 @@ function loadApiKey() {
   }
 
   // 3. Then check ~/.codeb/config.json (set by 'we init')
-  const configPath = join(homedir(), '.codeb', 'config.json');
-  if (existsSync(configPath)) {
-    try {
+  try {
+    const configPath = join(homedir(), '.codeb', 'config.json');
+    if (existsSync(configPath)) {
       const content = readFileSync(configPath, 'utf-8');
       const config = JSON.parse(content);
       if (config.CODEB_API_KEY) {
         return config.CODEB_API_KEY;
       }
-    } catch {
-      // Ignore parse errors
     }
+  } catch {
+    // Ignore parse errors
   }
 
   // 4. Then check ~/.codeb/.env file (legacy)
-  const envPath = join(homedir(), '.codeb', '.env');
-  if (existsSync(envPath)) {
-    try {
+  try {
+    const envPath = join(homedir(), '.codeb', '.env');
+    if (existsSync(envPath)) {
       const content = readFileSync(envPath, 'utf-8');
       const match = content.match(/^CODEB_API_KEY=(.+)$/m);
       if (match && match[1]) {
         return match[1].trim();
       }
-    } catch {
-      // Ignore read errors
     }
+  } catch {
+    // Ignore read errors
   }
 
   return '';
@@ -94,31 +99,15 @@ const rawApiUrl = process.env.CODEB_API_URL || 'https://api.codeb.kr';
 const API_URL = rawApiUrl.replace(/\/api\/?$/, '');
 const API_KEY = loadApiKey();
 
-if (!API_KEY) {
-  console.error('═'.repeat(60));
-  console.error('❌ ERROR: CodeB API Key가 설정되지 않았습니다');
-  console.error('═'.repeat(60));
-  console.error('');
-  console.error('🔑 API 키 설정 방법 (우선순위 순):');
-  console.error('');
-  console.error('   1. 프로젝트 .env 파일에 추가 (권장):');
-  console.error('      echo "CODEB_API_KEY=codeb_팀ID_역할_토큰" >> .env');
-  console.error('');
-  console.error('   2. 환경변수로 설정:');
-  console.error('      export CODEB_API_KEY=codeb_팀ID_역할_토큰');
-  console.error('');
-  console.error('   3. we init 명령어 실행 (글로벌 설정):');
-  console.error('      we init codeb_팀ID_역할_토큰');
-  console.error('');
-  console.error('═'.repeat(60));
-  process.exit(1);
-}
-
 // ============================================================================
 // HTTP API Client
 // ============================================================================
 
 async function callApi(tool, params = {}) {
+  if (!API_KEY) {
+    throw new Error('API Key not configured. Run: we init <YOUR_API_KEY>');
+  }
+
   const response = await fetch(`${API_URL}/api/tool`, {
     method: 'POST',
     headers: {
@@ -130,20 +119,10 @@ async function callApi(tool, params = {}) {
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`API request failed: ${response.status} - ${text}`);
+    throw new Error(`API error ${response.status}: ${text || 'Unknown error'}`);
   }
 
   return response.json();
-}
-
-async function checkHealth() {
-  try {
-    const response = await fetch(`${API_URL}/health`);
-    const data = await response.json();
-    return data.success === true || data.status === 'healthy';
-  } catch {
-    return false;
-  }
 }
 
 // ============================================================================
@@ -357,7 +336,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       workflow_init: 'workflow_init',
       workflow_scan: 'workflow_scan',
       scan: 'workflow_scan',
-      health_check: 'slot_list', // Returns system status
+      health_check: 'slot_list',
     };
 
     const apiTool = apiToolMap[name] || name;
@@ -402,26 +381,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 // ============================================================================
 
 export async function startMcpServer() {
-  // Check API health before starting
-  const healthy = await checkHealth();
-  if (!healthy) {
-    console.error(`WARNING: CodeB API at ${API_URL}/health is not responding`);
-    console.error('The MCP server will start but API calls may fail');
-  }
-
-  // Start MCP server
+  // Start MCP server immediately - no blocking health checks
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  console.error(`CodeB MCP Proxy v${VERSION} started`);
-  console.error(`API URL: ${API_URL}`);
-  console.error(`API Key: ${API_KEY.slice(0, 20)}...`);
+  // Log to stderr only after successful connection (like other MCP servers)
+  console.error(`CodeB MCP Server v${VERSION} running on stdio`);
 }
 
 // Run if called directly
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   startMcpServer().catch((error) => {
-    console.error('Failed to start MCP server:', error);
+    console.error('Fatal error:', error.message);
     process.exit(1);
   });
 }
