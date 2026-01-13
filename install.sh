@@ -5,6 +5,7 @@ set -e
 
 INSTALL_DIR="$HOME/.codeb"
 CLAUDE_CONFIG="$HOME/.claude.json"
+ENV_FILE="$INSTALL_DIR/.env"
 
 echo "📦 CodeB MCP 설치 중..."
 
@@ -28,34 +29,56 @@ if [ -z "$API_KEY" ]; then
   exit 1
 fi
 
+# .env 파일 생성
+echo "⚙️ 환경 설정 파일 생성 중..."
+cat > "$ENV_FILE" << EOF
+CODEB_API_URL=https://api.codeb.kr
+CODEB_API_KEY=$API_KEY
+EOF
+
 # Claude MCP 설정 추가
 echo "⚙️ Claude Code MCP 설정 중..."
 
+MCP_CONFIG="{
+  \"command\": \"node\",
+  \"args\": [\"$HOME/.codeb/mcp-server/dist/index.js\"],
+  \"env\": {
+    \"CODEB_API_KEY\": \"$API_KEY\",
+    \"CODEB_API_URL\": \"https://api.codeb.kr\"
+  }
+}"
+
 if [ -f "$CLAUDE_CONFIG" ]; then
-  # 기존 설정에 mcpServers 추가/업데이트
   if command -v jq &> /dev/null; then
     jq --arg key "$API_KEY" --arg path "$HOME/.codeb/mcp-server/dist/index.js" '
       .mcpServers["codeb-deploy"] = {
         "command": "node",
         "args": [$path],
         "env": {
-          "CODEB_API_KEY": $key
+          "CODEB_API_KEY": $key,
+          "CODEB_API_URL": "https://api.codeb.kr"
         }
       }
     ' "$CLAUDE_CONFIG" > "$CLAUDE_CONFIG.tmp" && mv "$CLAUDE_CONFIG.tmp" "$CLAUDE_CONFIG"
   else
-    echo "⚠️ jq가 없어서 수동 설정 필요"
-    echo "~/.claude.json에 다음 추가:"
-    echo ""
-    echo "\"codeb-deploy\": {"
-    echo "  \"command\": \"node\","
-    echo "  \"args\": [\"$HOME/.codeb/mcp-server/dist/index.js\"],"
-    echo "  \"env\": { \"CODEB_API_KEY\": \"$API_KEY\" }"
-    echo "}"
-    exit 0
+    echo "⚠️ jq 설치 중..."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      brew install jq
+    else
+      sudo apt-get install -y jq
+    fi
+    jq --arg key "$API_KEY" --arg path "$HOME/.codeb/mcp-server/dist/index.js" '
+      .mcpServers["codeb-deploy"] = {
+        "command": "node",
+        "args": [$path],
+        "env": {
+          "CODEB_API_KEY": $key,
+          "CODEB_API_URL": "https://api.codeb.kr"
+        }
+      }
+    ' "$CLAUDE_CONFIG" > "$CLAUDE_CONFIG.tmp" && mv "$CLAUDE_CONFIG.tmp" "$CLAUDE_CONFIG"
   fi
 else
-  # 새 설정 파일 생성
   cat > "$CLAUDE_CONFIG" << EOF
 {
   "mcpServers": {
@@ -63,7 +86,8 @@ else
       "command": "node",
       "args": ["$HOME/.codeb/mcp-server/dist/index.js"],
       "env": {
-        "CODEB_API_KEY": "$API_KEY"
+        "CODEB_API_KEY": "$API_KEY",
+        "CODEB_API_URL": "https://api.codeb.kr"
       }
     }
   }
@@ -73,4 +97,8 @@ fi
 
 echo ""
 echo "✅ 설치 완료!"
+echo ""
+echo "📁 설치 위치: $INSTALL_DIR"
+echo "🔑 API Key: $API_KEY"
+echo ""
 echo "🚀 Claude Code를 재시작하면 codeb-deploy MCP가 활성화됩니다"
